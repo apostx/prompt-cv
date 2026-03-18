@@ -1,0 +1,128 @@
+Prompt CV - CV Data Schema
+
+This is the JSON structure expected by the default Handlebars CV template.
+Use this as a reference when building your own template or preparing CV data.
+
+== JSON SCHEMA ==
+
+{
+  "header": {
+    "name": "Jane Smith",
+    "location": "Berlin, Germany",
+    "email": "jane.smith@example.com",
+    "phone": "+49 123 456 7890",
+    "linkedin": "linkedin.com/in/janesmith"
+  },
+
+  "application": {
+    "position": "Senior Software Engineer",
+    "company": "Acme Corp"
+  },
+
+  "summary": "Experienced software engineer with 8+ years building scalable web applications and distributed systems. Proven track record of leading cross-functional teams and delivering high-impact products. Passionate about clean architecture, developer experience, and mentoring.",
+
+  "experience": [
+    {
+      "company": "Tech Solutions GmbH",
+      "position": "Senior Software Engineer",
+      "period": "2021 - Present",
+      "highlights": [
+        "Led migration of monolithic application to microservices architecture, reducing deployment time by 70%",
+        "Mentored team of 5 junior developers through code reviews and pair programming sessions",
+        "Designed and implemented real-time data pipeline processing 2M+ events daily",
+        "Introduced automated testing practices, increasing code coverage from 40% to 85%"
+      ]
+    },
+    {
+      "company": "Digital Agency Inc.",
+      "position": "Full Stack Developer",
+      "period": "2018 - 2021",
+      "highlights": [
+        "Built responsive web applications for 15+ clients using React and Node.js",
+        "Implemented CI/CD pipelines reducing release cycles from weeks to daily deployments",
+        "Optimized database queries resulting in 60% improvement in API response times"
+      ]
+    },
+    {
+      "company": "StartupXYZ",
+      "position": "Junior Developer",
+      "period": "2016 - 2018",
+      "highlights": [
+        "Developed core features for the company's SaaS platform serving 10K+ users",
+        "Created automated reporting system saving 20 hours per week of manual work"
+      ]
+    }
+  ],
+
+  "education": [
+    {
+      "institution": "Technical University of Berlin",
+      "degree": "M.Sc. Computer Science",
+      "period": "2014 - 2016"
+    },
+    {
+      "institution": "University of Munich",
+      "degree": "B.Sc. Computer Science",
+      "period": "2011 - 2014"
+    }
+  ],
+
+  "skills": [
+    {
+      "category": "Programming Languages",
+      "items": "TypeScript, JavaScript, Python, Go, SQL"
+    },
+    {
+      "category": "Frameworks & Libraries",
+      "items": "React, Angular, Node.js, Express, NestJS"
+    },
+    {
+      "category": "Cloud & Infrastructure",
+      "items": "AWS (Lambda, DynamoDB, S3, CloudFront), Docker, Kubernetes, Terraform"
+    },
+    {
+      "category": "Tools & Practices",
+      "items": "Git, CI/CD, Agile/Scrum, TDD, Microservices"
+    },
+    {
+      "category": "Languages",
+      "items": "English (fluent), German (fluent), French (intermediate)"
+    }
+  ]
+}
+
+== FIELD DESCRIPTIONS ==
+
+header.name         - Full name of the candidate
+header.location     - City and country
+header.email        - Contact email address
+header.phone        - Phone number with country code
+header.linkedin     - LinkedIn profile URL (or other professional link)
+
+application.position - Target job title (used for filename and tailoring)
+application.company  - Target company name (used for filename and tailoring)
+
+summary             - 2-4 sentence professional summary
+
+experience[]        - Array of work experience entries (reverse chronological)
+  .company          - Company name
+  .position         - Job title held
+  .period           - Employment period (e.g., "2021 - Present")
+  .highlights[]     - Array of achievement bullet points
+
+education[]         - Array of education entries
+  .institution      - School or university name
+  .degree           - Degree title and field
+  .period           - Study period
+
+skills[]            - Array of skill categories
+  .category         - Category name (e.g., "Programming Languages")
+  .items            - Comma-separated list of skills
+
+== TEMPLATE NOTES ==
+
+- The template uses Handlebars syntax: {{header.name}}, {{#each experience}}, etc.
+- Create your template in Google Docs using these placeholders
+- The generated filename is derived from: header.name + application.position + application.company
+- Fields can be omitted if not applicable; the template should handle missing data gracefully
+- Users can customize the schema by creating their own template with different fields

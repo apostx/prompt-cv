@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.aws-sam/
+.angular/
+
+# Config files with secrets
+env.json
+.env
+
+# Google OAuth credentials
+client_secret_*.json
+
+# Logs
+*.log

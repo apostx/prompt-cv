@@ -1,0 +1,227 @@
+CV_ROOT_INSTRUCTIONS
+
+
+PURPOSE
+Generate a professional, targeted CV through a staged workflow using the Prompt CV MCP tools.
+
+
+SESSION MODEL
+- get_cv_instructions creates or resumes a session
+- it returns:
+  - sessionId
+  - prompt (this document)
+  - settings:
+    - contextDocId — the candidate's work experience document (load with get_doc_content)
+    - templateDocId — the CV template document (use with finalize_cv or update_cv_data)
+  - warnings (if any settings are missing)
+- the session data is stored server-side for 24 hours
+- all later calls must use the same sessionId
+- if warnings are present, inform the user about missing settings before proceeding
+
+
+TOOLS
+1. get_cv_instructions
+   - starts or resumes the session
+   - returns the root prompt, session ID, user settings (contextDocId, templateDocId), and any warnings
+
+2. get_doc_content
+   - reads document content from Google Docs
+   - accepts either:
+     - one document ID
+     - or an array of document IDs
+   - use it to batch-load:
+     - the candidate work-experience context document (if provided)
+     - any instruction or reference documents
+
+3. update_cv_data
+   - deep-merges the provided data into the stored session data
+   - accepts either:
+     - a single object
+     - or an array of objects merged sequentially
+   - can also finalize the CV when:
+     - finalize = true
+     - templateDocId is provided
+
+4. finalize_cv
+   - generates the final CV document from the accumulated session data and a template
+   - use this only if you do not finalize through update_cv_data
+
+5. optimize_cv
+   - adjusts margins and removes page breaks to fit within a target page count
+   - use after finalization if the CV exceeds the desired length
+
+
+WORKFLOW MODEL
+Use batched reading and batched updating for efficiency.
+
+Correct order:
+1. Call get_cv_instructions to start a session
+2. Check the returned settings and warnings:
+   - if contextDocId is present, load it with get_doc_content (this is the candidate's work history)
+   - if templateDocId is present, use it for finalization
+   - if warnings exist, inform the user about missing settings and ask them to configure in the dashboard
+3. If the user provides additional document IDs, batch-load them with get_doc_content
+4. Gather information from the user or from loaded documents
+5. Process each CV section in order (see STAGE ORDER below)
+6. Send all section outputs through one update_cv_data call
+7. Finalize in the same call (using templateDocId from settings) or separately with finalize_cv
+8. Optionally call optimize_cv if the result exceeds the page target
+
+
+STAGE ORDER
+Process sections in this order, as later stages may reference earlier outputs:
+
+1. Experience
+   - Extract and format work experience entries
+   - Each entry: company, position, period, achievement bullet points
+   - Focus on measurable impact and results
+
+2. Summary
+   - Write a professional summary based on the processed experience
+   - Tailor to the target position if one is specified
+   - 2-4 sentences highlighting key strengths and career trajectory
+
+3. Skills
+   - Compile technical and professional skills from experience
+   - Group by category (e.g., Languages, Frameworks, Cloud, Tools, Spoken Languages)
+
+4. Credentials
+   - Education entries: institution, degree, period
+   - Certifications, courses, or other relevant credentials
+
+
+STAGE OWNERSHIP RULE
+Each stage is fully responsible for:
+- its own selection logic (what to include)
+- its own validation logic (completeness, accuracy)
+- its own formatting rules (bullet points, structure)
+- its own output shape (matching the template schema)
+
+
+BATCH UPDATE RULE
+After processing all stages, send one update_cv_data call with:
+- sessionId
+- data = [
+    preloadPayload,
+    experiencePayload,
+    summaryPayload,
+    skillsPayload,
+    credentialsPayload
+  ]
+
+Where:
+- preloadPayload contains cvContext (if any), application, and header
+- the remaining payloads contain only the outputs of their own stages
+
+
+FINALIZATION RULE
+If the CV should be generated immediately after merging:
+- call update_cv_data with:
+  - sessionId
+  - data = [preloadPayload, experiencePayload, summaryPayload, skillsPayload, credentialsPayload]
+  - finalize = true
+  - templateDocId = the templateDocId from the returned settings
+
+If you do not want immediate finalization:
+- call update_cv_data without finalize
+- then call finalize_cv separately later
+
+
+HEADER SCHEMA
+The preload payload must include a header object matching the template.
+Common template paths:
+
+  header.name          — candidate full name
+  header.title         — target role title (use application.position)
+  header.location      — candidate location (city, country)
+  header.contact.phone — phone number
+  header.contact.email — email address
+  header.links.linkedin — LinkedIn URL
+  header.links.github   — GitHub URL (if applicable)
+
+Map header fields from the candidate context or user-provided information.
+
+
+HEADER LOCATION RULE
+If the candidate's nationality indicates EU citizenship, append "(EU Citizen)" to the location string.
+Format: "<City>, <Country> (EU Citizen)"
+If nationality is unknown or non-EU, use: "<City>, <Country>"
+
+
+APPLICATION CONTEXT
+If the user specifies a target role:
+- application.position — target job title
+- application.company  — target company name
+Use these to tailor the summary, highlight relevant experience, and set header.title.
+
+
+EXPERIENCE RULES
+- Use strong action verbs (Led, Designed, Implemented, Optimized, etc.)
+- Quantify achievements: percentages, team sizes, user counts, revenue impact
+- Each bullet point should be 1-2 lines maximum
+- List roles in reverse chronological order
+- Focus on achievements and impact, not just responsibilities
+- Tailor bullet points to emphasize skills relevant to the target role
+- For long careers, prioritize recent and relevant roles
+- Consolidate or summarize older positions
+
+EXPERIENCE FORMATTING
+- Do NOT start bullet points with the same verb repeatedly — vary your language
+- Do NOT use generic filler phrases like "Played a key role" or "Was responsible for"
+- Each bullet should convey a specific, concrete achievement or contribution
+- If a role involved leadership, state the team size and what was delivered
+- If a role involved technical work, name the specific technologies and measurable outcome
+
+
+SUMMARY RULES
+- 2-4 sentences, concise and impactful
+- Lead with years of experience and primary domain
+- Mention 2-3 key differentiators (leadership, specific tech, domain expertise)
+- End with what the candidate brings to the target role
+- Do NOT use buzzwords without substance
+
+
+SKILLS RULES
+- Group into clear categories
+- Include only skills evidenced by the experience section
+- Order categories by relevance to the target role
+- Include spoken languages with proficiency level
+- Do NOT list every technology ever touched — focus on current, marketable skills
+
+
+CREDENTIALS RULES
+- Education: institution, degree/field, period
+- Certifications: name, issuing body, date (if recent/relevant)
+- Include online courses or bootcamps only if highly relevant (e.g., Udemy certificates for specific technologies)
+- Omit outdated or irrelevant credentials
+
+
+CV CONTEXT RULE
+If the user provides a context document (work history, resume, LinkedIn export):
+- Use it as the authoritative source for candidate facts
+- Persist it into the session as data.cvContext
+- Cross-reference all experience, dates, and skills against this source
+- Do NOT fabricate or embellish facts not present in the source
+
+
+GENERAL RULES
+- Target CV length: 1-2 pages (use optimize_cv if it exceeds this)
+- Consistent date formatting throughout (e.g., "Jan 2020 - Present" or "2020 - Present")
+- No spelling or grammar errors
+- Professional, confident tone — not arrogant, not humble
+- Avoid first person ("I led...") — use implied first person ("Led...")
+- Use the templateDocId from the settings returned by get_cv_instructions
+- Users can customize these instructions by setting their own Instructions Doc ID in the dashboard
+
+
+CUSTOMIZATION
+These are default instructions. For better results, create your own instructions document
+in Google Docs tailored to your industry, experience level, and preferences. Set the
+document ID in the Prompt CV dashboard under Settings > Instructions Doc ID.
+
+Tips for custom instructions:
+- Add industry-specific terminology and standards
+- Define your preferred tone and writing style
+- Specify additional sections (projects, publications, volunteering)
+- Add rules about what to emphasize or de-emphasize
+- Include examples of good bullet points from your field

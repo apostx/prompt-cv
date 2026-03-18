@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Prompt CV MCP Server - EC2 + CloudFront
+
+Parameters:
+  CvAuthFunctionName:
+    Type: String
+    Description: Name of the auth-wrapped CV API Lambda function
+  CvAuthFunctionArn:
+    Type: String
+    Description: ARN of the auth-wrapped CV API Lambda function
+  ApiUrl:
+    Type: String
+    Description: API Gateway URL for the CV API
+  AuthApiUrl:
+    Type: String
+    Description: Auth API Gateway URL (for OAuth discovery)
+  ContextDocId:
+    Type: String
+    Description: Google Doc ID for work context
+    Default: ""
+  InstructionsDocId:
+    Type: String
+    Description: Google Doc ID for CV generation instructions
+    Default: ""
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth2 Client ID
+    Default: ""
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth2 Client Secret
+    Default: ""
+    NoEcho: true
+  UsersTable:
+    Type: String
+    Description: DynamoDB Users table name
+    Default: prompt-cv-users
+  OAuthTokensTable:
+    Type: String
+    Description: DynamoDB OAuth Tokens table name
+    Default: prompt-cv-oauth-tokens
+  FrontendUrl:
+    Type: String
+    Description: CloudFront URL of the frontend (for default instructions fallback)
+    Default: ""
+
+Resources:
+  # IAM role for EC2 instance
+  McpEc2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeCvAuthLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Ref CvAuthFunctionArn
+        - PolicyName: S3ReadDeployBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::prompt-cv-mcp-server-${AWS::AccountId}/*"
+        - PolicyName: DynamoDBReadUsers
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource:
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}"
+        - PolicyName: DynamoDBReadTokens
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource:
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OAuthTokensTable}"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  McpEc2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref McpEc2Role
+
+  # Security group — allow 8080 from anywhere (CloudFront uses public IPs)
+  McpEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MCP Server - Allow HTTP 8080
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  # Elastic IP for stable DNS
+  McpEc2Eip:
+    Type: AWS::EC2::EIP
+
+  McpEc2EipAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref McpEc2Instance
+      AllocationId: !GetAtt McpEc2Eip.AllocationId
+
+  # EC2 instance
+  McpEc2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      IamInstanceProfile: !Ref McpEc2InstanceProfile
+      SecurityGroupIds:
+        - !Ref McpEc2SecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+
+          # Install Node.js 20
+          dnf install -y nodejs20
+
+          # Create app directory
+          mkdir -p /opt/mcp-server
+          cd /opt/mcp-server
+
+          # Download bundled app from S3
+          aws s3 cp s3://prompt-cv-mcp-server-${AWS::AccountId}/mcp-server.mjs ./mcp-server.mjs --region ${AWS::Region}
+
+          # Create environment file
+          cat > /opt/mcp-server/.env << 'ENVEOF'
+          PORT=8080
+          API_URL=${ApiUrl}
+          AUTH_API_URL=${AuthApiUrl}
+          CV_AUTH_FUNCTION_NAME=${CvAuthFunctionName}
+          CONTEXT_DOC_ID=${ContextDocId}
+          INSTRUCTIONS_DOC_ID=${InstructionsDocId}
+          GOOGLE_CLIENT_ID=${GoogleClientId}
+          GOOGLE_CLIENT_SECRET=${GoogleClientSecret}
+          USERS_TABLE=${UsersTable}
+          OAUTH_TOKENS_TABLE=${OAuthTokensTable}
+          FRONTEND_URL=${FrontendUrl}
+          AWS_REGION=${AWS::Region}
+          NODE_OPTIONS=--enable-source-maps
+          ENVEOF
+
+          # Create systemd service
+          cat > /etc/systemd/system/mcp-server.service << 'EOF'
+          [Unit]
+          Description=MCP Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/mcp-server
+          EnvironmentFile=/opt/mcp-server/.env
+          ExecStart=/usr/bin/node mcp-server.mjs
+          Restart=always
+          RestartSec=5
+          TimeoutStopSec=10
+          KillMode=mixed
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          systemctl daemon-reload
+          systemctl enable mcp-server
+          systemctl start mcp-server
+      Tags:
+        - Key: Name
+          Value: prompt-cv-mcp-server
+
+  # CloudFront distribution — HTTPS termination, no caching
+  McpDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: McpEc2EipAssociation
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: Prompt CV MCP Server
+        Origins:
+          - Id: McpEc2Origin
+            DomainName: !GetAtt McpEc2Instance.PublicDnsName
+            CustomOriginConfig:
+              HTTPPort: 8080
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: McpEc2Origin
+          ViewerProtocolPolicy: https-only
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - PATCH
+            - POST
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+        PriceClass: PriceClass_100
+        HttpVersion: http2
+
+Outputs:
+  McpServerUrl:
+    Description: MCP Server HTTPS URL
+    Value: !Sub "https://${McpDistribution.DomainName}/mcp"
+  McpEc2InstanceId:
+    Description: EC2 Instance ID (for SSM access)
+    Value: !Ref McpEc2Instance
+  McpEc2PublicIp:
+    Description: EC2 Elastic IP
+    Value: !Ref McpEc2Eip

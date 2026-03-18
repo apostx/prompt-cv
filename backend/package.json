@@ -1,0 +1,44 @@
+{
+  "name": "prompt-cv",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "AGPL-3.0",
+  "private": true,
+  "scripts": {
+    "build": "sam build",
+    "dev": "sam local start-api --env-vars env.json",
+    "typecheck": "tsc --noEmit",
+    "deploy": "node -e \"const e=JSON.parse(require('fs').readFileSync('env.json','utf-8')),c=e.CvApiFunction,m=e.McpApiFunction,p={GoogleClientId:c.GOOGLE_CLIENT_ID,GoogleClientSecret:c.GOOGLE_CLIENT_SECRET,GoogleRefreshToken:c.GOOGLE_REFRESH_TOKEN,CvDocId:m.CV_DOC_ID,ContextDocId:m.CONTEXT_DOC_ID};require('child_process').execSync('sam deploy --parameter-overrides '+Object.entries(p).map(([k,v])=>k+'='+v).join(' '),{stdio:'inherit'})\"",
+    "build:mcp": "npx esbuild src/mcp/index.ts --bundle --platform=node --target=es2022 --format=esm --outfile=dist/mcp-server.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "deploy:mcp": "node scripts/deploy-mcp.js",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "token:refresh": "node scripts/refresh-and-deploy.js",
+    "token:deploy": "node scripts/refresh-and-deploy.js --deploy"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "express": "^4.21.0",
+    "googleapis": "^170.1.0",
+    "handlebars": "^4.7.8",
+    "jose": "^6.2.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1009.0",
+    "@aws-sdk/client-lambda": "^3.1005.0",
+    "@aws-sdk/lib-dynamodb": "^3.1009.0",
+    "@eslint/js": "^10.0.1",
+    "@types/aws-lambda": "^8.10.130",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "esbuild": "^0.19.0",
+    "eslint": "^10.0.3",
+    "open": "^11.0.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.57.1"
+  }
+}

@@ -1,0 +1,343 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Prompt CV - Auth Stack (multi-user Google OAuth)
+
+Parameters:
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth2 Client ID
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth2 Client Secret
+    NoEcho: true
+  JwtSecret:
+    Type: String
+    Description: Secret key for signing JWTs
+    NoEcho: true
+  FrontendUrl:
+    Type: String
+    Description: Frontend URL for redirects after login
+    Default: ""
+  McpUrl:
+    Type: String
+    Description: MCP server URL (shown in frontend dashboard)
+    Default: ""
+
+Globals:
+  Function:
+    Timeout: 60
+    Runtime: nodejs20.x
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        NODE_OPTIONS: --enable-source-maps
+
+Resources:
+  # --- DynamoDB Tables ---
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: prompt-cv-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
+  OAuthClientsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: prompt-cv-oauth-clients
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: clientId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: clientId
+          KeyType: HASH
+
+  OAuthCodesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: prompt-cv-oauth-codes
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: code
+          AttributeType: S
+      KeySchema:
+        - AttributeName: code
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  OAuthTokensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: prompt-cv-oauth-tokens
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: token
+          AttributeType: S
+      KeySchema:
+        - AttributeName: token
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  # --- API Gateway ---
+
+  AuthApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - Accept
+
+  # --- Auth Lambda ---
+
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: auth-api.handler
+      CodeUri: src/handlers/
+      Environment:
+        Variables:
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          GOOGLE_CLIENT_SECRET: !Ref GoogleClientSecret
+          JWT_SECRET: !Ref JwtSecret
+          API_URL: !Sub "https://${AuthApi}.execute-api.${AWS::Region}.amazonaws.com"
+          FRONTEND_URL: !Ref FrontendUrl
+          CORS_ORIGINS: !Ref FrontendUrl
+          MCP_URL: !Ref McpUrl
+          USERS_TABLE: !Ref UsersTable
+          OAUTH_CLIENTS_TABLE: !Ref OAuthClientsTable
+          OAUTH_CODES_TABLE: !Ref OAuthCodesTable
+          OAUTH_TOKENS_TABLE: !Ref OAuthTokensTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OAuthClientsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OAuthCodesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OAuthTokensTable
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - auth-api.ts
+        External:
+          - '@aws-sdk/*'
+
+  AuthIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref AuthApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AuthFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  AuthPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AuthFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AuthApi}/*"
+
+  # Auth routes
+  WebLoginRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /auth/google"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  WebCallbackRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /auth/google/callback"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  OAuthMetadataRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /.well-known/oauth-authorization-server"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  OAuthMetadataMcpRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /.well-known/oauth-authorization-server/mcp"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  OAuthRegisterRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /oauth/register"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  OAuthAuthorizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /oauth/authorize"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  OAuthCallbackRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /oauth/callback"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  OAuthTokenRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /oauth/token"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  ConfigRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /config"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  # --- CV Auth Lambda ---
+
+  CvAuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: cv-api-auth.handler
+      CodeUri: src/handlers/
+      Environment:
+        Variables:
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          GOOGLE_CLIENT_SECRET: !Ref GoogleClientSecret
+          JWT_SECRET: !Ref JwtSecret
+          USERS_TABLE: !Ref UsersTable
+          OAUTH_TOKENS_TABLE: !Ref OAuthTokensTable
+          CORS_ORIGINS: !Ref FrontendUrl
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OAuthTokensTable
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - cv-api-auth.ts
+        External:
+          - '@aws-sdk/*'
+
+  CvAuthIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref AuthApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt CvAuthFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  CvAuthPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CvAuthFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AuthApi}/*"
+
+  # CV auth routes
+  CvAuthRootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /cv"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  CvAuthGenerateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /cv/generate"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  CvAuthGenerateAltRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /cv"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  CvAuthOptimizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /cv/optimize"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  DocsHtmlAuthRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "PUT /docs/{id}/html"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  # User settings/files routes
+  UserSettingsGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /user/settings"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserSettingsPutRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "PUT /user/settings"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserFilesRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /user/files"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+Outputs:
+  AuthApiEndpoint:
+    Description: Auth API Gateway endpoint URL
+    Value: !Sub "https://${AuthApi}.execute-api.${AWS::Region}.amazonaws.com"
+  UsersTableName:
+    Description: DynamoDB Users table name
+    Value: !Ref UsersTable

@@ -1,0 +1,254 @@
+import { createHash } from 'node:crypto';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { getGoogleAuthUrl, exchangeCodeForTokens, getUserInfo, signJwt, verifyScopes } from '../services/auth.js';
+import { saveUser, getUser } from '../services/user-store.js';
+import {
+  registerClient,
+  saveAuthCode,
+  consumeAuthCode,
+  saveAccessToken,
+} from '../services/oauth-store.js';
+import { optionsResponse } from '../shared/cors.js';
+import { jsonResponse } from '../shared/response.js';
+
+const API_URL = process.env.API_URL || '';
+const FRONTEND_URL = process.env.FRONTEND_URL || '';
+const MCP_URL = process.env.MCP_URL || '';
+
+export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const path = event.rawPath || '/';
+  const method = event.requestContext.http.method;
+
+  if (method === 'OPTIONS') return optionsResponse();
+
+  try {
+    // --- Public Config ---
+    if (path === '/config' && method === 'GET') return handleConfig(event);
+
+    // --- Web Auth ---
+    if (path === '/auth/google' && method === 'GET') return handleWebLogin(event);
+    if (path === '/auth/google/callback' && method === 'GET') return handleWebCallback(event);
+
+    // --- MCP OAuth Discovery ---
+    if ((path === '/.well-known/oauth-authorization-server' || path === '/.well-known/oauth-authorization-server/mcp') && method === 'GET') {
+      return handleOAuthMetadata();
+    }
+
+    // --- MCP OAuth ---
+    if (path === '/oauth/register' && method === 'POST') return handleRegister(event);
+    if (path === '/oauth/authorize' && method === 'GET') return handleAuthorize(event);
+    if (path === '/oauth/callback' && method === 'GET') return handleOAuthCallback(event);
+    if (path === '/oauth/token' && method === 'POST') return handleToken(event);
+
+    return jsonResponse(404, { error: 'Not found' });
+  } catch (error) {
+    console.error('Auth handler error:', error);
+    return jsonResponse(500, { error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+}
+
+// --- Public Config ---
+
+function handleConfig(event: APIGatewayProxyEventV2): APIGatewayProxyResultV2 {
+  const origin = event.headers?.origin;
+  return jsonResponse(200, { mcpUrl: MCP_URL }, origin);
+}
+
+// --- Web Auth Handlers ---
+
+function handleWebLogin(_event: APIGatewayProxyEventV2): APIGatewayProxyResultV2 {
+  const redirectUri = `${API_URL}/auth/google/callback`;
+  const state = JSON.stringify({ type: 'web' });
+  const url = getGoogleAuthUrl(redirectUri, state);
+  return { statusCode: 302, headers: { Location: url }, body: '' };
+}
+
+async function handleWebCallback(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const params = event.queryStringParameters || {};
+  const code = params.code;
+  if (!code) return jsonResponse(400, { error: 'Missing code parameter' });
+
+  const redirectUri = `${API_URL}/auth/google/callback`;
+  const tokens = await exchangeCodeForTokens(code, redirectUri);
+
+  const missingScopes = verifyScopes(tokens.scope ?? undefined);
+  if (missingScopes.length > 0) {
+    return {
+      statusCode: 302,
+      headers: { Location: `${FRONTEND_URL}/login?error=missing_scopes` },
+      body: '',
+    };
+  }
+
+  const userInfo = await getUserInfo(tokens.access_token!);
+
+  await saveUser({
+    userId: userInfo.id,
+    email: userInfo.email,
+    name: userInfo.name,
+    googleAccessToken: tokens.access_token!,
+    googleRefreshToken: tokens.refresh_token || '',
+    googleTokenExpiry: tokens.expiry_date || Date.now() + 3600_000,
+    settings: (await getUser(userInfo.id))?.settings || {},
+  });
+
+  const jwt = await signJwt({ sub: userInfo.id, email: userInfo.email, name: userInfo.name });
+  // Redirect to frontend with JWT in URL fragment
+  return {
+    statusCode: 302,
+    headers: { Location: `${FRONTEND_URL}/auth/callback#token=${jwt}` },
+    body: '',
+  };
+}
+
+// --- MCP OAuth Handlers ---
+
+function handleOAuthMetadata(): APIGatewayProxyResultV2 {
+  return jsonResponse(200, {
+    issuer: API_URL,
+    authorization_endpoint: `${API_URL}/oauth/authorize`,
+    token_endpoint: `${API_URL}/oauth/token`,
+    registration_endpoint: `${API_URL}/oauth/register`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    token_endpoint_auth_methods_supported: ['none'],
+    code_challenge_methods_supported: ['S256'],
+  });
+}
+
+async function handleRegister(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  if (!event.body) return jsonResponse(400, { error: 'Body required' });
+  const body = JSON.parse(event.body);
+  const name = body.client_name || 'MCP Client';
+  const redirectUri = body.redirect_uris?.[0];
+  if (!redirectUri) return jsonResponse(400, { error: 'redirect_uris required' });
+
+  const client = await registerClient(name, redirectUri);
+  return jsonResponse(201, {
+    client_id: client.clientId,
+    client_name: client.clientName,
+    redirect_uris: [client.redirectUri],
+  });
+}
+
+function handleAuthorize(event: APIGatewayProxyEventV2): APIGatewayProxyResultV2 {
+  const params = event.queryStringParameters || {};
+  const clientId = params.client_id;
+  const redirectUri = params.redirect_uri;
+  const state = params.state;
+  const codeChallenge = params.code_challenge;
+
+  if (!clientId || !redirectUri) {
+    return jsonResponse(400, { error: 'client_id and redirect_uri required' });
+  }
+
+  // Store OAuth params in state and redirect to Google
+  const googleCallbackUri = `${API_URL}/oauth/callback`;
+  const oauthState = JSON.stringify({
+    type: 'mcp',
+    clientId,
+    redirectUri,
+    state: state || '',
+    codeChallenge: codeChallenge || '',
+  });
+  const url = getGoogleAuthUrl(googleCallbackUri, oauthState);
+  return { statusCode: 302, headers: { Location: url }, body: '' };
+}
+
+async function handleOAuthCallback(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const params = event.queryStringParameters || {};
+  const code = params.code;
+  const stateStr = params.state;
+  if (!code || !stateStr) return jsonResponse(400, { error: 'Missing code or state' });
+
+  const state = JSON.parse(stateStr);
+  const { clientId, redirectUri, state: clientState, codeChallenge } = state;
+
+  // Exchange Google code for tokens
+  const googleCallbackUri = `${API_URL}/oauth/callback`;
+  const tokens = await exchangeCodeForTokens(code, googleCallbackUri);
+
+  const missingScopes = verifyScopes(tokens.scope ?? undefined);
+  if (missingScopes.length > 0) {
+    const separator = redirectUri.includes('?') ? '&' : '?';
+    return {
+      statusCode: 302,
+      headers: { Location: `${redirectUri}${separator}error=access_denied&error_description=Missing+required+scopes` },
+      body: '',
+    };
+  }
+
+  const userInfo = await getUserInfo(tokens.access_token!);
+
+  // Save/update user
+  await saveUser({
+    userId: userInfo.id,
+    email: userInfo.email,
+    name: userInfo.name,
+    googleAccessToken: tokens.access_token!,
+    googleRefreshToken: tokens.refresh_token || '',
+    googleTokenExpiry: tokens.expiry_date || Date.now() + 3600_000,
+    settings: (await getUser(userInfo.id))?.settings || {},
+  });
+
+  // Generate our authorization code
+  const authCode = await saveAuthCode({
+    userId: userInfo.id,
+    clientId,
+    redirectUri,
+    codeChallenge: codeChallenge || undefined,
+  });
+
+  // Redirect back to MCP client with our auth code
+  const separator = redirectUri.includes('?') ? '&' : '?';
+  const location = `${redirectUri}${separator}code=${authCode}${clientState ? `&state=${encodeURIComponent(clientState)}` : ''}`;
+  return { statusCode: 302, headers: { Location: location }, body: '' };
+}
+
+async function handleToken(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  if (!event.body) return jsonResponse(400, { error: 'Body required' });
+
+  // Decode base64 body if needed (API Gateway encodes form-urlencoded)
+  const rawBody = event.isBase64Encoded
+    ? Buffer.from(event.body, 'base64').toString('utf-8')
+    : event.body;
+
+  // Parse both form-urlencoded and JSON
+  let body: Record<string, string>;
+  const contentType = event.headers['content-type'] || '';
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    body = Object.fromEntries(new URLSearchParams(rawBody));
+  } else {
+    body = JSON.parse(rawBody);
+  }
+
+  const grantType = body.grant_type;
+  if (grantType !== 'authorization_code') {
+    return jsonResponse(400, { error: 'unsupported_grant_type' });
+  }
+
+  const code = body.code;
+  if (!code) return jsonResponse(400, { error: 'Missing code' });
+
+  const authCode = await consumeAuthCode(code);
+  if (!authCode) return jsonResponse(400, { error: 'invalid_grant', error_description: 'Invalid or expired authorization code' });
+
+  // Verify PKCE if code_challenge was provided
+  if (authCode.codeChallenge) {
+    const codeVerifier = body.code_verifier;
+    if (!codeVerifier) return jsonResponse(400, { error: 'invalid_grant', error_description: 'code_verifier required' });
+    const hash = createHash('sha256').update(codeVerifier).digest('base64url');
+    if (hash !== authCode.codeChallenge) {
+      return jsonResponse(400, { error: 'invalid_grant', error_description: 'code_verifier mismatch' });
+    }
+  }
+
+  // Issue access token
+  const accessToken = await saveAccessToken(authCode.userId);
+
+  return jsonResponse(200, {
+    access_token: accessToken,
+    token_type: 'Bearer',
+    expires_in: 7 * 24 * 3600,
+  });
+}

@@ -68,6 +68,8 @@ npm install              # Install dependencies
 npm run build            # Tailwind + ng build (production)
 npm run start            # Tailwind + ng serve (development)
 npx eslint src/          # Lint
+npm test                 # Run tests (vitest)
+npm run test:watch       # Watch mode
 node scripts/deploy.js   # Upload dist to S3 + invalidate CloudFront
 ```
 

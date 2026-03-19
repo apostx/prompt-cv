@@ -87,6 +87,8 @@ SAM CLI on Windows has an esbuild artifact upload bug (empty `manifest_hash`). D
 npm install                        # Install dependencies
 npx tsc --noEmit                   # Type check
 npx eslint src/                    # Lint
+npm test                           # Run tests (vitest)
+npm run test:watch                 # Watch mode
 node scripts/deploy-prod.js        # Deploy prod stack + Lambda code
 node scripts/deploy-auth.js        # Deploy auth stack + Lambda code
 npm run build:mcp                  # Bundle MCP server (esbuild → dist/mcp-server.mjs)

@@ -87,6 +87,8 @@ Each user record in DynamoDB (`prompt-cv-users`) includes:
 # Backend
 cd backend && npx tsc --noEmit        # Type check
 cd backend && npx eslint src/          # Lint
+cd backend && npm test                 # Run tests (vitest)
+cd backend && npm run test:watch       # Watch mode
 cd backend && node scripts/deploy-prod.js  # Deploy prod stack + upload Lambda code
 cd backend && node scripts/deploy-auth.js  # Deploy auth stack + upload Lambda code
 cd backend && npm run build:mcp        # Bundle MCP server
@@ -95,6 +97,7 @@ cd backend && npm run deploy:mcp       # Build + upload + restart EC2
 # Frontend
 cd frontend && npm run build           # Tailwind + ng build
 cd frontend && npx eslint src/         # Lint
+cd frontend && npm test                # Run tests (vitest)
 cd frontend && node scripts/deploy.js  # Discover URLs, build, upload to S3, invalidate CloudFront
 ```
 

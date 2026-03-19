@@ -8,7 +8,7 @@ import {
 import { generateCv } from '../services/cv-generation.js';
 import { optimizeCv } from '../services/cv-optimizer.js';
 import { verifyJwt } from '../services/auth.js';
-import { getUser, updateUserSettings, getGoogleClientsForUser, type UserSettings } from '../services/user-store.js';
+import { getUser, updateUserSettings, getGoogleClientsForUser, incrementCvCount, getAllUsersAdmin, type UserSettings } from '../services/user-store.js';
 import { getUserByAccessToken } from '../services/oauth-store.js';
 import { optionsResponse } from '../shared/cors.js';
 import { jsonResponse } from '../shared/response.js';
@@ -86,6 +86,13 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       const auth = await authenticate(event);
       if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
       return handleOptimize(event, auth);
+    }
+
+    // Admin endpoints
+    if (path === '/admin/users' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleAdminUsers(auth.userId);
     }
 
     if (path === '/cv' && method === 'GET') {
@@ -187,6 +194,15 @@ async function handleListFiles(auth: AuthContext): Promise<APIGatewayProxyResult
   return jsonResponse(200, { files: response.data.files || [] });
 }
 
+// --- Admin Handlers ---
+
+async function handleAdminUsers(userId: string): Promise<APIGatewayProxyResultV2> {
+  const user = await getUser(userId);
+  if (!user?.isAdmin) return jsonResponse(403, { error: 'Admin access required' });
+  const users = await getAllUsersAdmin();
+  return jsonResponse(200, { users });
+}
+
 // --- CV Handlers ---
 
 async function handleOptimize(event: APIGatewayProxyEventV2, auth: AuthContext): Promise<APIGatewayProxyResultV2> {
@@ -238,6 +254,8 @@ async function handleGenerate(event: APIGatewayProxyEventV2, auth: AuthContext):
     folderPath,
     clients: auth.clients,
   });
+
+  await incrementCvCount(auth.userId);
 
   return jsonResponse(200, result);
 }

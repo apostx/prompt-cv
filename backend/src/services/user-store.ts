@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { google } from 'googleapis';
 import type { docs_v1 } from 'googleapis';
 import { refreshGoogleToken } from './auth.js';
@@ -22,6 +22,8 @@ export interface User {
   googleRefreshToken: string;
   googleTokenExpiry: number;
   settings: UserSettings;
+  isAdmin?: boolean;
+  cvsGenerated?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,6 +57,41 @@ export async function updateUserSettings(userId: string, settings: UserSettings)
   );
   const merged = { ...user.settings, ...cleaned };
   await saveUser({ ...user, settings: merged });
+}
+
+export async function incrementCvCount(userId: string): Promise<void> {
+  await client.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: { userId },
+    UpdateExpression: 'ADD cvsGenerated :one',
+    ExpressionAttributeValues: { ':one': 1 },
+  }));
+}
+
+export async function getPublicStats(): Promise<{ userCount: number; totalCvsGenerated: number }> {
+  const result = await client.send(new ScanCommand({
+    TableName: TABLE_NAME,
+    ProjectionExpression: 'cvsGenerated',
+  }));
+  const items = result.Items || [];
+  return {
+    userCount: items.length,
+    totalCvsGenerated: items.reduce((sum, item) => sum + ((item.cvsGenerated as number) || 0), 0),
+  };
+}
+
+export async function getAllUsersAdmin(): Promise<{ email: string; name: string; cvsGenerated: number; createdAt: string }[]> {
+  const result = await client.send(new ScanCommand({
+    TableName: TABLE_NAME,
+    ProjectionExpression: 'email, #n, cvsGenerated, createdAt',
+    ExpressionAttributeNames: { '#n': 'name' },
+  }));
+  return (result.Items || []).map(item => ({
+    email: item.email as string,
+    name: item.name as string,
+    cvsGenerated: (item.cvsGenerated as number) || 0,
+    createdAt: item.createdAt as string,
+  }));
 }
 
 export interface GoogleClients {

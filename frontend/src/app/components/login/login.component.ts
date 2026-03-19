@@ -1,12 +1,13 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
+import { UserApiService } from '../../services/user-api.service';
 
 @Component({
   selector: 'app-login',
   standalone: true,
   template: `
-    <div class="flex items-center justify-center min-h-[80vh]">
+    <div class="flex flex-col items-center justify-center min-h-[80vh]">
       <div class="bg-white rounded-lg shadow-md p-8 max-w-sm w-full text-center">
         <h2 class="text-2xl font-bold text-gray-800 mb-2">Prompt CV</h2>
         <p class="text-gray-500 mb-6">Sign in to manage your CVs</p>
@@ -28,18 +29,45 @@ import { AuthService } from '../../services/auth.service';
           Sign in with Google
         </button>
       </div>
+      @if (userCount() > 0) {
+        <div class="mt-6 flex items-center gap-4 text-sm text-gray-400">
+          <div class="flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+            </svg>
+            <span>{{ userCount() }} {{ userCount() === 1 ? 'user' : 'users' }}</span>
+          </div>
+          <span class="text-gray-300">|</span>
+          <div class="flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            <span>{{ totalCvs() }} {{ totalCvs() === 1 ? 'CV' : 'CVs' }} generated</span>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
 export class LoginComponent implements OnInit {
   auth = inject(AuthService);
   private route = inject(ActivatedRoute);
+  private userApi = inject(UserApiService);
   error = signal('');
+  userCount = signal(0);
+  totalCvs = signal(0);
 
   ngOnInit() {
     const errorParam = this.route.snapshot.queryParamMap.get('error');
     if (errorParam === 'missing_scopes') {
       this.error.set('You must grant Google Drive access for Prompt CV to save CVs to your Drive. Please try again and allow all permissions.');
     }
+
+    this.userApi.getStats().subscribe({
+      next: (stats) => {
+        this.userCount.set(stats.userCount);
+        this.totalCvs.set(stats.totalCvsGenerated);
+      },
+    });
   }
 }

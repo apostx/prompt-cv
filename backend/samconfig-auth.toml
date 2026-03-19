@@ -6,3 +6,4 @@ region = "eu-central-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 template_file = "template-auth.yaml"
+resolve_s3 = true

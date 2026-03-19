@@ -1,4 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+
+const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const TABLE_NAME = process.env.SESSIONS_TABLE || 'prompt-cv-sessions';
+const TTL_SECONDS = 60 * 60; // 1 hour
 
 export interface CvSession {
   id: string;
@@ -29,64 +35,66 @@ function deepMerge(
   return result;
 }
 
-const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-
 class SessionStore {
-  private sessions = new Map<string, CvSession>();
-  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
-
-  constructor() {
-    this.cleanupTimer = setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
-  }
-
-  create(): CvSession {
+  async create(): Promise<CvSession> {
+    const now = Date.now();
     const session: CvSession = {
       id: randomUUID(),
       data: {},
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
     };
-    this.sessions.set(session.id, session);
+    await client.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        sessionId: session.id,
+        data: JSON.stringify(session.data),
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        expiresAt: Math.floor(now / 1000) + TTL_SECONDS,
+      },
+    }));
     console.log(`[session-store] Created session ${session.id}`);
     return session;
   }
 
-  get(id: string): CvSession | undefined {
-    return this.sessions.get(id);
+  async get(id: string): Promise<CvSession | undefined> {
+    const result = await client.send(new GetCommand({
+      TableName: TABLE_NAME,
+      Key: { sessionId: id },
+    }));
+    if (!result.Item) return undefined;
+    return {
+      id: result.Item.sessionId as string,
+      data: JSON.parse(result.Item.data as string),
+      createdAt: result.Item.createdAt as number,
+      updatedAt: result.Item.updatedAt as number,
+    };
   }
 
-  update(id: string, data: Record<string, unknown>): CvSession {
-    const session = this.sessions.get(id);
+  async update(id: string, data: Record<string, unknown>): Promise<CvSession> {
+    const session = await this.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
     session.data = deepMerge(session.data, data);
     session.updatedAt = Date.now();
+    await client.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        sessionId: session.id,
+        data: JSON.stringify(session.data),
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        expiresAt: Math.floor(session.updatedAt / 1000) + TTL_SECONDS,
+      },
+    }));
     return session;
   }
 
-  delete(id: string): void {
-    this.sessions.delete(id);
-  }
-
-  private cleanup(): void {
-    const now = Date.now();
-    let removed = 0;
-    for (const [id, session] of this.sessions) {
-      if (now - session.updatedAt > TTL_MS) {
-        this.sessions.delete(id);
-        removed++;
-      }
-    }
-    if (removed > 0) {
-      console.log(`[session-store] Cleaned up ${removed} expired session(s), ${this.sessions.size} remaining`);
-    }
-  }
-
-  stop(): void {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
+  async delete(id: string): Promise<void> {
+    await client.send(new DeleteCommand({
+      TableName: TABLE_NAME,
+      Key: { sessionId: id },
+    }));
   }
 }
 

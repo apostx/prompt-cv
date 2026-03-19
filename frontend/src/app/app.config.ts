@@ -2,6 +2,7 @@ import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/
 import { provideRouter, Routes } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { authGuard } from './guards/auth.guard';
+import { guestGuard } from './guards/guest.guard';
 import { authInterceptor } from './interceptors/auth.interceptor';
 import { LoginComponent } from './components/login/login.component';
 import { AuthCallbackComponent } from './components/auth-callback/auth-callback.component';
@@ -11,9 +12,11 @@ import { FilesComponent } from './components/dashboard/files.component';
 import { McpComponent } from './components/dashboard/mcp.component';
 import { ApiComponent } from './components/dashboard/api.component';
 import { UsageComponent } from './components/dashboard/usage.component';
+import { SecurityComponent } from './components/dashboard/security.component';
+import { AdminComponent } from './components/dashboard/admin.component';
 
 const routes: Routes = [
-  { path: 'login', component: LoginComponent },
+  { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
   { path: 'auth/callback', component: AuthCallbackComponent },
   {
     path: '',
@@ -25,6 +28,8 @@ const routes: Routes = [
       { path: 'mcp', component: McpComponent },
       { path: 'api', component: ApiComponent },
       { path: 'usage', component: UsageComponent },
+      { path: 'security', component: SecurityComponent },
+      { path: 'admin', component: AdminComponent },
       { path: '', redirectTo: 'settings', pathMatch: 'full' },
     ],
   },

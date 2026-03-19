@@ -45,6 +45,22 @@ Parameters:
     Default: ""
 
 Resources:
+  # --- DynamoDB ---
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: prompt-cv-sessions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
   # IAM role for EC2 instance
   McpEc2Role:
     Type: AWS::IAM::Role
@@ -82,6 +98,17 @@ Resources:
                   - dynamodb:PutItem
                 Resource:
                   - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}"
+        - PolicyName: DynamoDBSessionsCrud
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                Resource:
+                  - !GetAtt SessionsTable.Arn
         - PolicyName: DynamoDBReadTokens
           PolicyDocument:
             Version: "2012-10-17"
@@ -163,6 +190,7 @@ Resources:
           USERS_TABLE=${UsersTable}
           OAUTH_TOKENS_TABLE=${OAuthTokensTable}
           FRONTEND_URL=${FrontendUrl}
+          SESSIONS_TABLE=prompt-cv-sessions
           AWS_REGION=${AWS::Region}
           NODE_OPTIONS=--enable-source-maps
           ENVEOF

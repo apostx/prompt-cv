@@ -5,18 +5,18 @@
 src/
 ├── handlers/
 │   ├── cv-api.ts           # Prod stack Lambda — shared service account, no auth
-│   ├── cv-api-auth.ts      # Auth stack Lambda — per-user Google credentials
-│   └── auth-api.ts         # Auth stack Lambda — OAuth flows (web + MCP)
+│   ├── cv-api-auth.ts      # Auth stack Lambda — per-user Google credentials, admin endpoints
+│   └── auth-api.ts         # Auth stack Lambda — OAuth flows (web + MCP), revoke, stats
 ├── mcp/                    # See src/mcp/CLAUDE.md
 │   ├── index.ts            # Express server (EC2), session management, OAuth discovery
 │   ├── server.ts           # MCP tool definitions (5 tools), createServer()
-│   └── session-store.ts    # In-memory CV data sessions (UUID keyed, 24h TTL)
+│   └── session-store.ts    # DynamoDB CV data sessions (UUID keyed, 1h TTL, deep merge)
 ├── services/               # See src/services/CLAUDE.md
 │   ├── google-docs.ts      # Google Docs/Drive API wrapper (20+ functions)
 │   ├── cv-generation.ts     # Shared CV generation logic (template → doc)
 │   ├── cv-optimizer.ts     # Binary search margin optimization (0.8"–1.0")
-│   ├── auth.ts             # Google OAuth helpers, JWT sign/verify, scope verification
-│   ├── user-store.ts       # DynamoDB user CRUD, Google client factory with token refresh
+│   ├── auth.ts             # Google OAuth helpers, JWT sign/verify, scope verification, token revocation
+│   ├── user-store.ts       # DynamoDB user CRUD, Google client factory, stats, admin queries
 │   └── oauth-store.ts      # DynamoDB OAuth: client registration, auth codes, access tokens
 ├── shared/
 │   ├── cors.ts             # Dynamic CORS headers (CORS_ORIGINS env var) + OPTIONS response
@@ -29,7 +29,7 @@ src/
 ## SAM Templates
 - `template.yaml` — Prod stack: CV API Lambda + Frontend S3/CloudFront
 - `template-auth.yaml` — Auth stack: 4 DynamoDB tables + Auth Lambda + CV Auth Lambda
-- `template-mcp.yaml` — MCP stack: EC2 t3.micro + CloudFront + IAM + Elastic IP
+- `template-mcp.yaml` — MCP stack: EC2 t3.micro + CloudFront + IAM + Elastic IP + Sessions DynamoDB table
 
 ## Key Patterns
 
@@ -75,13 +75,20 @@ Returns `settings` (contextDocId, templateDocId) and `warnings` array if setting
 ### Error Handling
 `errors.ts` provides `ApiError` class for typed errors and `handleError()` for consistent error responses in catch blocks. Replaces ad-hoc error handling in all Lambda handlers.
 
+## Deploy Scripts
+SAM CLI on Windows has an esbuild artifact upload bug (empty `manifest_hash`). Deploy scripts work around this by running `sam deploy` for CloudFormation, then directly uploading Lambda code via `aws lambda update-function-code`.
+
+- `scripts/deploy-prod.js` — Deploy prod stack + upload CvApiFunction Lambda
+- `scripts/deploy-auth.js` — Deploy auth stack + upload AuthFunction + CvAuthFunction Lambdas
+- `scripts/deploy-mcp.js` — Build MCP bundle, upload to S3, restart EC2 via SSM
+
 ## Build Commands
 ```bash
-npm install                      # Install dependencies
-npx tsc --noEmit                 # Type check
-npx eslint src/                  # Lint
-sam build                        # Build prod stack
-sam build -t template-auth.yaml  # Build auth stack
-npm run build:mcp                # Bundle MCP server (esbuild → dist/mcp-server.mjs)
-npm run deploy:mcp               # Build + upload + restart EC2
+npm install                        # Install dependencies
+npx tsc --noEmit                   # Type check
+npx eslint src/                    # Lint
+node scripts/deploy-prod.js        # Deploy prod stack + Lambda code
+node scripts/deploy-auth.js        # Deploy auth stack + Lambda code
+npm run build:mcp                  # Bundle MCP server (esbuild → dist/mcp-server.mjs)
+npm run deploy:mcp                 # Build + upload + restart EC2
 ```

@@ -6,6 +6,7 @@ interface UserInfo {
   sub: string;
   email: string;
   name: string;
+  isAdmin?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -20,7 +21,7 @@ export class AuthService {
     if (!token) return null;
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
-      return { sub: payload.sub, email: payload.email, name: payload.name };
+      return { sub: payload.sub, email: payload.email, name: payload.name, isAdmin: payload.isAdmin };
     } catch {
       return null;
     }

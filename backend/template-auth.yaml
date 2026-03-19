@@ -222,6 +222,20 @@ Resources:
       RouteKey: "POST /oauth/token"
       Target: !Sub "integrations/${AuthIntegration}"
 
+  StatsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /stats"
+      Target: !Sub "integrations/${AuthIntegration}"
+
+  AuthRevokeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /auth/revoke"
+      Target: !Sub "integrations/${AuthIntegration}"
+
   ConfigRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -313,6 +327,13 @@ Resources:
       Target: !Sub "integrations/${CvAuthIntegration}"
 
   # User settings/files routes
+  AdminUsersRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /admin/users"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
   UserSettingsGetRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:

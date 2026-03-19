@@ -67,7 +67,7 @@ function getJwtSecret() {
   return new TextEncoder().encode(secret);
 }
 
-export async function signJwt(payload: { sub: string; email: string; name: string }): Promise<string> {
+export async function signJwt(payload: { sub: string; email: string; name: string; isAdmin?: boolean }): Promise<string> {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -75,7 +75,20 @@ export async function signJwt(payload: { sub: string; email: string; name: strin
     .sign(getJwtSecret());
 }
 
-export async function verifyJwt(token: string): Promise<{ sub: string; email: string; name: string }> {
+export async function verifyJwt(token: string): Promise<{ sub: string; email: string; name: string; isAdmin?: boolean }> {
   const { payload } = await jwtVerify(token, getJwtSecret());
-  return payload as { sub: string; email: string; name: string };
+  return payload as { sub: string; email: string; name: string; isAdmin?: boolean };
+}
+
+export async function revokeGoogleToken(token: string): Promise<void> {
+  const res = await fetch(
+    `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    },
+  );
+  if (!res.ok && res.status !== 400) {
+    throw new Error(`Google token revocation failed: ${res.status}`);
+  }
 }

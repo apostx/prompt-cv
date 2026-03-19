@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
-import { getGoogleAuthUrl, exchangeCodeForTokens, getUserInfo, signJwt, verifyScopes } from '../services/auth.js';
-import { saveUser, getUser } from '../services/user-store.js';
+import { getGoogleAuthUrl, exchangeCodeForTokens, getUserInfo, signJwt, verifyJwt, verifyScopes, revokeGoogleToken } from '../services/auth.js';
+import { saveUser, getUser, getPublicStats } from '../services/user-store.js';
 import {
   registerClient,
   saveAuthCode,
@@ -22,12 +22,14 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   if (method === 'OPTIONS') return optionsResponse();
 
   try {
-    // --- Public Config ---
+    // --- Public ---
     if (path === '/config' && method === 'GET') return handleConfig(event);
+    if (path === '/stats' && method === 'GET') return handleStats(event);
 
     // --- Web Auth ---
     if (path === '/auth/google' && method === 'GET') return handleWebLogin(event);
     if (path === '/auth/google/callback' && method === 'GET') return handleWebCallback(event);
+    if (path === '/auth/revoke' && method === 'POST') return handleRevoke(event);
 
     // --- MCP OAuth Discovery ---
     if ((path === '/.well-known/oauth-authorization-server' || path === '/.well-known/oauth-authorization-server/mcp') && method === 'GET') {
@@ -47,11 +49,21 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   }
 }
 
-// --- Public Config ---
+// --- Public ---
 
 function handleConfig(event: APIGatewayProxyEventV2): APIGatewayProxyResultV2 {
   const origin = event.headers?.origin;
   return jsonResponse(200, { mcpUrl: MCP_URL }, origin);
+}
+
+let statsCache: { data: { userCount: number; totalCvsGenerated: number }; expiresAt: number } | null = null;
+
+async function handleStats(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const origin = event.headers?.origin;
+  if (!statsCache || Date.now() > statsCache.expiresAt) {
+    statsCache = { data: await getPublicStats(), expiresAt: Date.now() + 5 * 60_000 };
+  }
+  return jsonResponse(200, statsCache.data, origin);
 }
 
 // --- Web Auth Handlers ---
@@ -82,23 +94,61 @@ async function handleWebCallback(event: APIGatewayProxyEventV2): Promise<APIGate
 
   const userInfo = await getUserInfo(tokens.access_token!);
 
+  const existingUser = await getUser(userInfo.id);
   await saveUser({
+    ...existingUser,
     userId: userInfo.id,
     email: userInfo.email,
     name: userInfo.name,
     googleAccessToken: tokens.access_token!,
-    googleRefreshToken: tokens.refresh_token || '',
+    googleRefreshToken: tokens.refresh_token || existingUser?.googleRefreshToken || '',
     googleTokenExpiry: tokens.expiry_date || Date.now() + 3600_000,
-    settings: (await getUser(userInfo.id))?.settings || {},
+    settings: existingUser?.settings || {},
   });
 
-  const jwt = await signJwt({ sub: userInfo.id, email: userInfo.email, name: userInfo.name });
+  const jwt = await signJwt({ sub: userInfo.id, email: userInfo.email, name: userInfo.name, isAdmin: existingUser?.isAdmin || undefined });
   // Redirect to frontend with JWT in URL fragment
   return {
     statusCode: 302,
     headers: { Location: `${FRONTEND_URL}/auth/callback#token=${jwt}` },
     body: '',
   };
+}
+
+// --- Revoke Handler ---
+
+async function handleRevoke(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const origin = event.headers?.origin;
+  const authHeader = event.headers?.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return jsonResponse(401, { error: 'Missing authorization token' }, origin);
+  }
+
+  const jwt = authHeader.slice(7);
+  const payload = await verifyJwt(jwt);
+  const user = await getUser(payload.sub);
+  if (!user) {
+    return jsonResponse(404, { error: 'User not found' }, origin);
+  }
+
+  // Revoke Google refresh token (best-effort — still clear local tokens on failure)
+  if (user.googleRefreshToken) {
+    try {
+      await revokeGoogleToken(user.googleRefreshToken);
+    } catch (err) {
+      console.warn('Google token revocation failed (continuing):', err);
+    }
+  }
+
+  // Clear Google tokens from user record
+  await saveUser({
+    ...user,
+    googleAccessToken: '',
+    googleRefreshToken: '',
+    googleTokenExpiry: 0,
+  });
+
+  return jsonResponse(200, { message: 'Account disconnected' }, origin);
 }
 
 // --- MCP OAuth Handlers ---
@@ -180,15 +230,17 @@ async function handleOAuthCallback(event: APIGatewayProxyEventV2): Promise<APIGa
 
   const userInfo = await getUserInfo(tokens.access_token!);
 
-  // Save/update user
+  // Save/update user (preserve existing fields like isAdmin, cvsGenerated)
+  const existingMcpUser = await getUser(userInfo.id);
   await saveUser({
+    ...existingMcpUser,
     userId: userInfo.id,
     email: userInfo.email,
     name: userInfo.name,
     googleAccessToken: tokens.access_token!,
-    googleRefreshToken: tokens.refresh_token || '',
+    googleRefreshToken: tokens.refresh_token || existingMcpUser?.googleRefreshToken || '',
     googleTokenExpiry: tokens.expiry_date || Date.now() + 3600_000,
-    settings: (await getUser(userInfo.id))?.settings || {},
+    settings: existingMcpUser?.settings || {},
   });
 
   // Generate our authorization code

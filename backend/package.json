@@ -1,6 +1,6 @@
 {
   "name": "prompt-cv",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "type": "module",
   "license": "AGPL-3.0",
   "private": true,
@@ -8,7 +8,8 @@
     "build": "sam build",
     "dev": "sam local start-api --env-vars env.json",
     "typecheck": "tsc --noEmit",
-    "deploy": "node -e \"const e=JSON.parse(require('fs').readFileSync('env.json','utf-8')),c=e.CvApiFunction,m=e.McpApiFunction,p={GoogleClientId:c.GOOGLE_CLIENT_ID,GoogleClientSecret:c.GOOGLE_CLIENT_SECRET,GoogleRefreshToken:c.GOOGLE_REFRESH_TOKEN,CvDocId:m.CV_DOC_ID,ContextDocId:m.CONTEXT_DOC_ID};require('child_process').execSync('sam deploy --parameter-overrides '+Object.entries(p).map(([k,v])=>k+'='+v).join(' '),{stdio:'inherit'})\"",
+    "deploy:prod": "node scripts/deploy-prod.js",
+    "deploy:auth": "node scripts/deploy-auth.js",
     "build:mcp": "npx esbuild src/mcp/index.ts --bundle --platform=node --target=es2022 --format=esm --outfile=dist/mcp-server.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "deploy:mcp": "node scripts/deploy-mcp.js",
     "lint": "eslint src/",

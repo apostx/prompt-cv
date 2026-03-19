@@ -15,12 +15,12 @@ AI-powered CV generator with Google Docs Handlebars templates and MCP server for
 ```
 prompt-cv/
 ├── backend/                        # See backend/CLAUDE.md
+│   └── scripts/                   # Deploy scripts (deploy-prod.js, deploy-auth.js, deploy-mcp.js)
 ├── frontend/                       # See frontend/CLAUDE.md
 ├── docs/
 │   ├── aws-setup.md               # AWS account + deployment guide
 │   ├── google-setup.md            # Google Cloud project setup
 │   └── user-guide.md              # End-user guide + instruction tips
-├── .github/workflows/deploy.yml   # CI/CD (GitHub Actions)
 ├── .prettierrc                    # Shared Prettier config
 ├── CLAUDE.md
 ├── README.md
@@ -55,32 +55,61 @@ Each user can configure:
 
 Settings are validated against Google Docs API before saving (404/403 checks). Empty fields use default fallbacks.
 
+## User Record
+Each user record in DynamoDB (`prompt-cv-users`) includes:
+- `userId`, `email`, `name` — Google account info
+- `googleAccessToken`, `googleRefreshToken`, `googleTokenExpiry` — OAuth credentials
+- `settings` — user preferences (see above)
+- `isAdmin?: boolean` — admin flag (grants access to admin endpoints)
+- `cvsGenerated?: number` — atomic counter incremented on each CV generation
+
+## API Endpoints
+
+### Auth API (`template-auth.yaml` → AuthFunction)
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/auth/google` | — | Initiate Google OAuth web flow |
+| GET | `/auth/google/callback` | — | OAuth callback, issues JWT |
+| GET | `/stats` | — | Public stats (user count, total CVs) with 5-min cache |
+| POST | `/auth/revoke` | JWT | Revoke Google tokens + clear from DB |
+
+### CV Auth API (`template-auth.yaml` → CvAuthFunction)
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/cv/generate` | JWT | Generate CV (increments CV counter) |
+| GET | `/user/settings` | JWT | Get user settings |
+| PUT | `/user/settings` | JWT | Update user settings (validates doc IDs) |
+| GET | `/user/files` | JWT | List generated CV files |
+| GET | `/admin/users` | JWT + admin | List all users with stats |
+
 ## Commands
 ```bash
 # Backend
-cd backend && npx tsc --noEmit      # Type check
-cd backend && npx eslint src/        # Lint
-cd backend && sam build && sam deploy # Build & deploy prod stack
-cd backend && sam build -t template-auth.yaml && sam deploy --config-file samconfig-auth.toml
-cd backend && npm run build:mcp      # Bundle MCP server
-cd backend && npm run deploy:mcp     # Build + upload + restart EC2
+cd backend && npx tsc --noEmit        # Type check
+cd backend && npx eslint src/          # Lint
+cd backend && node scripts/deploy-prod.js  # Deploy prod stack + upload Lambda code
+cd backend && node scripts/deploy-auth.js  # Deploy auth stack + upload Lambda code
+cd backend && npm run build:mcp        # Bundle MCP server
+cd backend && npm run deploy:mcp       # Build + upload + restart EC2
 
 # Frontend
-cd frontend && npm run build         # Tailwind + ng build
-cd frontend && npx eslint src/       # Lint
-cd frontend && node scripts/deploy.js # Discover URLs, build, upload to S3, invalidate CloudFront
+cd frontend && npm run build           # Tailwind + ng build
+cd frontend && npx eslint src/         # Lint
+cd frontend && node scripts/deploy.js  # Discover URLs, build, upload to S3, invalidate CloudFront
 ```
 
 ## Frontend Routes
-| Route | Component | Description |
-|-------|-----------|-------------|
-| `/login` | LoginComponent | Google OAuth login |
-| `/auth/callback` | AuthCallbackComponent | OAuth redirect handler |
-| `/settings` | SettingsComponent | User settings (folder, doc IDs with validation) |
-| `/files` | FilesComponent | Generated CV list (filtered by folder) |
-| `/mcp` | McpComponent | MCP server URL + connect instructions |
-| `/api` | ApiComponent | REST API documentation |
-| `/usage` | UsageComponent | Application usage guide |
+| Route | Component | Guard | Description |
+|-------|-----------|-------|-------------|
+| `/login` | LoginComponent | guestGuard | Google OAuth login + public stats |
+| `/auth/callback` | AuthCallbackComponent | — | OAuth redirect handler |
+| `/settings` | SettingsComponent | authGuard | User settings (folder, doc IDs with validation) |
+| `/files` | FilesComponent | authGuard | Generated CV list (filtered by folder) |
+| `/mcp` | McpComponent | authGuard | MCP server URL + connect instructions |
+| `/api` | ApiComponent | authGuard | REST API documentation |
+| `/usage` | UsageComponent | authGuard | Application usage guide |
+| `/security` | SecurityComponent | authGuard | Google OAuth permissions + disconnect |
+| `/admin` | AdminComponent | authGuard | Admin-only user management + stats |
 
 ## Configuration
 - Google OAuth credentials: SAM parameters (GoogleClientId, GoogleClientSecret)
@@ -98,3 +127,5 @@ cd frontend && node scripts/deploy.js # Discover URLs, build, upload to S3, inva
 - Angular: standalone components, signals, `inject()` pattern, Tailwind utility classes
 - Inline templates for all components (no separate .html files)
 - ESLint + Prettier configured for both backend and frontend
+- **Version bumps per commit** — bump `version` in the relevant `package.json` (backend, frontend) when that part is touched. Also bump the MCP server version in `backend/src/mcp/server.ts` if MCP tools changed. Use semver: patch for fixes, minor for features, major for breaking changes.
+- **Conventional Commits** — use `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, `style:`, `perf:`, `test:` prefixes. Scope is optional (e.g., `feat(auth):`, `fix(frontend):`). Keep subject concise, imperative mood.

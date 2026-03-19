@@ -28,6 +28,8 @@ Prompt CV avoids AI API costs entirely. It works with the ChatGPT or Claude subs
 - **REST API** — Generate CVs programmatically without MCP
 - **Page Optimization** — Automatically adjust margins to fit CVs within target page count
 - **Web Dashboard** — Manage settings, view generated CVs, access documentation
+- **Security Management** — View and revoke Google OAuth permissions from the dashboard
+- **Admin Dashboard** — Admin users can view all registered users and CV generation stats
 
 ## Architecture
 

@@ -6,7 +6,7 @@ src/app/
 ├── app.ts                          # Root component (header + router-outlet)
 ├── app.config.ts                   # Routes + providers (provideRouter, provideHttpClient)
 ├── components/
-│   ├── login/login.component.ts    # Google OAuth login, missing_scopes error display
+│   ├── login/login.component.ts    # Google OAuth login, missing_scopes error display, public stats
 │   ├── auth-callback/              # Handles /auth/callback redirect, stores JWT
 │   ├── dashboard/
 │   │   ├── dashboard.component.ts  # Layout shell: tab nav (routerLink) + router-outlet
@@ -14,15 +14,19 @@ src/app/
 │   │   ├── files.component.ts      # Generated CVs list (filtered by folder from settings)
 │   │   ├── mcp.component.ts        # MCP server URL + connection instructions
 │   │   ├── api.component.ts        # REST API docs (endpoints table, curl examples)
-│   │   └── usage.component.ts      # App guide (templates, MCP, getting started)
+│   │   ├── usage.component.ts      # App guide (templates, MCP, getting started)
+│   │   ├── security.component.ts   # Google OAuth permissions, disconnect/revoke
+│   │   └── admin.component.ts      # Admin-only: user list, CV counts, stats
 │   ├── generator/               # Manual CV generation form (templateDocId + JSON data)
 │   └── docs-html-writer/           # Direct HTML write to a Google Doc
 ├── services/
-│   ├── auth.service.ts             # JWT storage, user info signal, login/logout
-│   ├── user-api.service.ts         # GET/PUT /user/settings, GET /user/files
+│   ├── auth.service.ts             # JWT storage, user info signal (incl. isAdmin), login/logout
+│   ├── user-api.service.ts         # GET/PUT /user/settings, GET /user/files, GET /stats, GET /admin/users
 │   ├── cv.service.ts               # POST /cv/generate
 │   └── docs.service.ts             # PUT /docs/:id/html
-├── guards/auth.guard.ts            # Redirects to /login if no JWT
+├── guards/
+│   ├── auth.guard.ts               # Redirects to /login if no JWT
+│   └── guest.guard.ts              # Redirects logged-in users to /settings
 └── interceptors/auth.interceptor.ts # Attaches Authorization: Bearer header
 ```
 
@@ -31,13 +35,15 @@ Dashboard is a parent route with child routes. Each tab is a separate component:
 
 | Route | Component | Guard |
 |-------|-----------|-------|
-| `/login` | LoginComponent | — |
+| `/login` | LoginComponent | guestGuard |
 | `/auth/callback` | AuthCallbackComponent | — |
 | `/settings` | SettingsComponent | authGuard |
 | `/files` | FilesComponent | authGuard |
 | `/mcp` | McpComponent | authGuard |
 | `/api` | ApiComponent | authGuard |
 | `/usage` | UsageComponent | authGuard |
+| `/security` | SecurityComponent | authGuard |
+| `/admin` | AdminComponent | authGuard |
 | `/` | redirects to `/settings` | — |
 
 ## Key Patterns

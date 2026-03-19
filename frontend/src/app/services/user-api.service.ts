@@ -48,4 +48,19 @@ export class UserApiService {
   getConfig(): Observable<{ mcpUrl: string }> {
     return this.http.get<{ mcpUrl: string }>(`${this.apiUrl}/config`);
   }
+
+  getStats(): Observable<{ userCount: number; totalCvsGenerated: number }> {
+    return this.http.get<{ userCount: number; totalCvsGenerated: number }>(`${this.apiUrl}/stats`);
+  }
+
+  getAdminUsers(): Observable<{ users: AdminUser[] }> {
+    return this.http.get<{ users: AdminUser[] }>(`${this.apiUrl}/admin/users`);
+  }
+}
+
+export interface AdminUser {
+  email: string;
+  name: string;
+  cvsGenerated: number;
+  createdAt: string;
 }

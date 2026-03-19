@@ -6,7 +6,7 @@ Express server running on EC2 behind CloudFront, providing MCP (Model Context Pr
 ## Files
 - `index.ts` — Express server, session lifecycle (30 min idle timeout), OAuth token validation on initialize, keepalive SSE pings (10s interval for ChatGPT compatibility)
 - `server.ts` — MCP tool definitions (`createServer()`), 5 tools for CV generation workflow
-- `session-store.ts` — In-memory CV data sessions (UUID keyed, 24h TTL, deep merge updates)
+- `session-store.ts` — DynamoDB-backed CV data sessions (UUID keyed, 1h TTL, deep merge updates)
 
 ## Session Lifecycle
 1. Client sends `initialize` request with Bearer token

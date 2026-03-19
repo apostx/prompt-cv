@@ -126,7 +126,7 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     { readOnlyHint: true, destructiveHint: false },
     async () => {
       try {
-        const session = sessionStore.create();
+        const session = await sessionStore.create();
 
         // Priority: user setting > env var > default file from frontend
         const instructionsDocId = userSettings?.instructionsDocId || INSTRUCTIONS_DOC_ID;
@@ -193,7 +193,7 @@ export function createServer(options: McpServerOptions = {}): McpServer {
         const items = Array.isArray(data) ? data : [data];
         let session;
         for (const item of items) {
-          session = sessionStore.update(sessionId, item);
+          session = await sessionStore.update(sessionId, item);
         }
         if (!session) return errorResult(404, `Session ${sessionId} not found`);
 
@@ -220,7 +220,7 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     async ({ sessionId, templateDocId }) => {
-      const session = sessionStore.get(sessionId);
+      const session = await sessionStore.get(sessionId);
       if (!session) return errorResult(404, `Session ${sessionId} not found`);
       try {
         const { documentId, url } = await invokeCvLambda(templateDocId, session.data, userToken);

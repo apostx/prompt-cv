@@ -37,15 +37,19 @@ Google OAuth helpers:
 - `getGoogleAuthUrl(redirectUri, state, scopes)` — build OAuth consent URL
 - `exchangeCodeForTokens(code, redirectUri)` — exchange auth code for tokens
 - `refreshGoogleToken(refreshToken)` — refresh expired access token
-- `signJwt(payload)` / `verifyJwt(token)` — JWT sign/verify using jose library
+- `signJwt(payload)` / `verifyJwt(token)` — JWT sign/verify using jose library (payload includes optional `isAdmin`)
 - `verifyScopes(accessToken)` — check granted OAuth scopes match required scopes
+- `revokeGoogleToken(token)` — revoke Google refresh token via Google's revocation endpoint
 
 ### user-store.ts
-DynamoDB CRUD for users:
-- `saveUser(user)` — create/update user record
+DynamoDB CRUD for users. `User` interface includes `isAdmin?: boolean` and `cvsGenerated?: number`.
+- `saveUser(user)` — create/update user record (PutCommand — caller must spread existing record to preserve fields)
 - `getUser(userId)` — get user by ID
 - `updateUserSettings(userId, settings)` — merge new settings into existing (filter undefined, shallow merge)
 - `getGoogleClientsForUser(userId)` — create authenticated Google API clients with automatic token refresh
+- `incrementCvCount(userId)` — atomic increment of `cvsGenerated` via DynamoDB ADD
+- `getPublicStats()` — scan users table, return `{ userCount, totalCvsGenerated }`
+- `getAllUsersAdmin()` — scan for admin listing (email, name, cvsGenerated, createdAt)
 
 ### oauth-store.ts
 DynamoDB OAuth lifecycle for MCP clients:

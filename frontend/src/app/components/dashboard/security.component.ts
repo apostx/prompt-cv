@@ -23,15 +23,15 @@ import { environment } from '../../../environments/environment';
           <li class="flex items-start gap-2">
             <span class="text-green-500 mt-0.5">&#10003;</span>
             <div>
-              <p class="font-medium text-gray-700">View your Google Drive files</p>
-              <p class="text-gray-500">Read access to templates, instructions, and context documents</p>
+              <p class="font-medium text-gray-700">Create and edit files it creates in your Drive</p>
+              <p class="text-gray-500">Required &mdash; used to save generated CVs to your Google Drive</p>
             </div>
           </li>
           <li class="flex items-start gap-2">
             <span class="text-green-500 mt-0.5">&#10003;</span>
             <div>
-              <p class="font-medium text-gray-700">Create and edit files it creates in your Drive</p>
-              <p class="text-gray-500">Used to save generated CVs to your Google Drive</p>
+              <p class="font-medium text-gray-700">View your Google Drive files</p>
+              <p class="text-gray-500">Optional &mdash; allows reading your context, template, and instruction documents</p>
             </div>
           </li>
           <li class="flex items-start gap-2">

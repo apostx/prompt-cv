@@ -89,10 +89,18 @@ node scripts/deploy.js
 | Tool | Description |
 |------|-------------|
 | `get_doc_content` | Retrieve plain text of Google Docs (single or batch) |
-| `get_cv_instructions` | Start CV session, return instructions prompt |
+| `get_cv_instructions` | Start CV session, return instructions + context content |
 | `update_cv_data` | Deep-merge data into session (optional finalize) |
 | `finalize_cv` | Generate CV from session data + template |
 | `optimize_cv` | Fit CV within target pages via margin optimization |
+
+## Best Practices
+
+- **Split context documents** — Separate your work history into focused docs (experience, projects, certifications) rather than one massive file. Reference them in your instructions or provide them during the session.
+- **Write custom instructions** — Default instructions are a good start, but tailoring them to your industry, seniority level, and target roles produces significantly better results.
+- **Cross-validate with multiple AIs** — Generate with one AI (e.g., Claude via MCP), then paste the result into another (e.g., ChatGPT) for review. Different models catch different issues.
+- **Tailor per application** — Tell the AI the target position and company. The instructions will automatically emphasize relevant skills and tailor the summary.
+- **Optimize page length** — Use `optimize_cv` after generation to fit within 1-2 pages by adjusting margins automatically.
 
 ## License
 

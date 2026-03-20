@@ -60,7 +60,7 @@ export class LoginComponent implements OnInit {
   ngOnInit() {
     const errorParam = this.route.snapshot.queryParamMap.get('error');
     if (errorParam === 'missing_scopes') {
-      this.error.set('You must grant Google Drive access for Prompt CV to save CVs to your Drive. Please try again and allow all permissions.');
+      this.error.set('Google Drive file access is required so Prompt CV can save generated CVs to your Drive. Please try again and grant the requested permission.');
     }
 
     this.userApi.getStats().subscribe({

@@ -115,19 +115,98 @@ import { RouterLink } from '@angular/router';
             or use the <a routerLink="/api" class="text-blue-500 hover:text-blue-600 underline">REST API</a> directly
           </li>
           <li>
-            <strong>Create a template</strong> (optional) &mdash; copy the
+            <strong>Create a template</strong> &mdash; copy the
             <a href="/defaults/schema.txt" target="_blank" class="text-blue-500 hover:text-blue-600 underline">default schema</a>
             into a Google Doc and customize it with your preferred layout
           </li>
           <li>
-            <strong>Configure settings</strong> (optional) &mdash; set your custom Instructions Doc ID
-            and Template Doc ID in <a routerLink="/settings" class="text-blue-500 hover:text-blue-600 underline">Settings</a>
+            <strong>Configure settings</strong> &mdash; set your Template Doc ID
+            in <a routerLink="/settings" class="text-blue-500 hover:text-blue-600 underline">Settings</a>.
+            Optionally set a Context Doc (work history) and custom Instructions Doc.
           </li>
           <li>
             <strong>Generate CVs</strong> &mdash; ask the AI to create a CV, and find
             your generated documents in <a routerLink="/files" class="text-blue-500 hover:text-blue-600 underline">Generated CVs</a>
           </li>
         </ol>
+      </div>
+
+      <div class="bg-white rounded-lg shadow-sm p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-3">Best Practices</h3>
+        <div class="space-y-3 text-sm text-gray-600">
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">Split your context documents</h4>
+            <p>
+              Instead of one massive document, consider splitting your work history into focused docs:
+              core experience, side projects, certifications, etc. Reference them in your instructions
+              or provide them to the AI during the session.
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">Write custom instructions</h4>
+            <p>
+              The default instructions work well, but custom instructions tailored to your industry,
+              seniority level, and target roles produce significantly better results. Use the
+              <a href="/defaults/instructions.txt" target="_blank" class="text-blue-500 hover:text-blue-600 underline">default instructions</a>
+              as a starting point.
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">Use AI cross-validation</h4>
+            <p>
+              Generate your CV with one AI (e.g., Claude via MCP), then paste the result into another
+              (e.g., ChatGPT) for review and suggestions. Different models catch different issues and
+              bring different strengths to CV writing.
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">Optimize page length</h4>
+            <p>
+              After generation, use <span class="font-mono text-gray-800">optimize_cv</span> to
+              automatically adjust margins and fit your CV within 1-2 pages. This works best when
+              you're just slightly over the target.
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">Tailor per application</h4>
+            <p>
+              When generating a CV for a specific job, tell the AI the target position and company.
+              The instructions will automatically tailor experience bullet points and the summary
+              to emphasize relevant skills.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow-sm p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-3">Troubleshooting</h3>
+        <div class="space-y-3 text-sm text-gray-600">
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">Document access errors</h4>
+            <p>
+              If the AI reports "access denied" for a document, make sure you've granted the
+              "View your Google Drive files" permission. Check
+              <a routerLink="/security" class="text-blue-500 hover:text-blue-600 underline">Security</a>
+              for your current permissions.
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">Invalid Doc ID</h4>
+            <p>
+              A Google Doc ID is the long string in the URL between <span class="font-mono">/d/</span>
+              and <span class="font-mono">/edit</span>. Example:
+              <span class="font-mono text-xs break-all">docs.google.com/document/d/<strong>1aBcDeFgHiJkLmNoPqRsTuVwXyZ</strong>/edit</span>
+            </p>
+          </div>
+          <div>
+            <h4 class="font-medium text-gray-700 mb-1">MCP connection issues</h4>
+            <p>
+              If the MCP server seems unresponsive, try disconnecting and reconnecting.
+              MCP sessions expire after 30 minutes of inactivity &mdash; the client should automatically
+              reconnect, but some clients may need a manual restart.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   `,

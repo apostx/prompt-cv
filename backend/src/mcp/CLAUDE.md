@@ -22,8 +22,9 @@ Express server running on EC2 behind CloudFront, providing MCP (Model Context Pr
 Starts a CV session. Returns:
 - `sessionId` — for `update_cv_data` and `finalize_cv`
 - `prompt` — instructions text (from user doc, env var, or default)
+- `context` — context doc content (if `contextDocId` configured; fetched inline, no separate call needed)
 - `settings` — `{ contextDocId, templateDocId }` (if configured)
-- `warnings` — array of missing setting warnings
+- `warnings` — only warns about missing `templateDocId` (required for finalization); `contextDocId` is optional
 
 Fallback chain for instructions: user's `instructionsDocId` → `INSTRUCTIONS_DOC_ID` env var → `FRONTEND_URL/defaults/instructions.txt`
 

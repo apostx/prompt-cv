@@ -6,41 +6,37 @@ Generate a professional, targeted CV through a staged workflow using the Prompt 
 
 
 SESSION MODEL
-- get_cv_instructions creates or resumes a session
-- it returns:
-  - sessionId
-  - prompt (this document)
+- get_cv_instructions creates a new session and returns:
+  - sessionId — use in all subsequent calls
+  - prompt — this document
+  - context — the candidate's work experience (if a context document is configured)
   - settings:
-    - contextDocId — the candidate's work experience document (load with get_doc_content)
-    - templateDocId — the CV template document (use with finalize_cv or update_cv_data)
-  - warnings (if any settings are missing)
-- the session data is stored server-side for 24 hours
+    - contextDocId — the candidate's work experience document ID (if configured)
+    - templateDocId — the CV template document ID (required for finalization)
+  - warnings — if any critical settings are missing (e.g., templateDocId)
+- the session data is stored server-side for 1 hour
 - all later calls must use the same sessionId
 - if warnings are present, inform the user about missing settings before proceeding
+- if context is present, use it as the candidate's work history (no need to call get_doc_content separately)
+- if context is not present, ask the user for their work history or load documents they provide
 
 
 TOOLS
 1. get_cv_instructions
-   - starts or resumes the session
-   - returns the root prompt, session ID, user settings (contextDocId, templateDocId), and any warnings
+   - starts a new session
+   - returns the root prompt, session ID, context content (if configured), settings, and warnings
+   - the context document content is included directly — no separate fetch needed
 
 2. get_doc_content
    - reads document content from Google Docs
-   - accepts either:
-     - one document ID
-     - or an array of document IDs
-   - use it to batch-load:
-     - the candidate work-experience context document (if provided)
-     - any instruction or reference documents
+   - accepts either a single document ID or an array of document IDs
+   - use it to load additional documents the user provides (e.g., job descriptions, extra context)
+   - NOT needed for the context document — that is included in get_cv_instructions
 
 3. update_cv_data
-   - deep-merges the provided data into the stored session data
-   - accepts either:
-     - a single object
-     - or an array of objects merged sequentially
-   - can also finalize the CV when:
-     - finalize = true
-     - templateDocId is provided
+   - deep-merges data into the stored session data
+   - accepts a single object or an array of objects merged sequentially
+   - can also finalize the CV when finalize = true and templateDocId is provided
 
 4. finalize_cv
    - generates the final CV document from the accumulated session data and a template
@@ -52,16 +48,17 @@ TOOLS
 
 
 WORKFLOW MODEL
-Use batched reading and batched updating for efficiency.
+Use batched updating for efficiency.
 
 Correct order:
 1. Call get_cv_instructions to start a session
-2. Check the returned settings and warnings:
-   - if contextDocId is present, load it with get_doc_content (this is the candidate's work history)
-   - if templateDocId is present, use it for finalization
-   - if warnings exist, inform the user about missing settings and ask them to configure in the dashboard
+2. Check the response:
+   - if context is present, use it as the candidate's work history
+   - if context is absent, ask the user for their work history or relevant document IDs
+   - if templateDocId is in settings, use it for finalization
+   - if warnings exist, inform the user and ask them to configure missing settings in the dashboard
 3. If the user provides additional document IDs, batch-load them with get_doc_content
-4. Gather information from the user or from loaded documents
+4. Gather any additional information from the user
 5. Process each CV section in order (see STAGE ORDER below)
 6. Send all section outputs through one update_cv_data call
 7. Finalize in the same call (using templateDocId from settings) or separately with finalize_cv
@@ -192,16 +189,20 @@ SKILLS RULES
 CREDENTIALS RULES
 - Education: institution, degree/field, period
 - Certifications: name, issuing body, date (if recent/relevant)
-- Include online courses or bootcamps only if highly relevant (e.g., Udemy certificates for specific technologies)
+- Include online courses or bootcamps only if highly relevant
 - Omit outdated or irrelevant credentials
 
 
 CV CONTEXT RULE
-If the user provides a context document (work history, resume, LinkedIn export):
+If context is returned by get_cv_instructions (or loaded via get_doc_content):
 - Use it as the authoritative source for candidate facts
 - Persist it into the session as data.cvContext
 - Cross-reference all experience, dates, and skills against this source
 - Do NOT fabricate or embellish facts not present in the source
+
+If no context is available:
+- Ask the user for their work history, skills, and relevant experience
+- You can also ask for document IDs to load with get_doc_content
 
 
 GENERAL RULES

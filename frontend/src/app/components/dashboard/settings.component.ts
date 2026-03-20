@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { UserApiService, type UserSettings, type SettingsValidation } from '../../services/user-api.service';
 
@@ -29,15 +29,12 @@ import { UserApiService, type UserSettings, type SettingsValidation } from '../.
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">
               Context Doc ID
-              <span class="text-red-500 ml-0.5">*</span>
             </label>
             <input
               type="text"
               [(ngModel)]="settings.contextDocId"
               placeholder="Google Doc ID"
-              class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              [class.border-orange-400]="isContextMissing()"
-              [class.border-gray-300]="!isContextMissing()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             @if (validation()['contextDocId']; as v) {
               @if (v.valid) {
@@ -46,15 +43,9 @@ import { UserApiService, type UserSettings, type SettingsValidation } from '../.
                 <p class="text-xs text-red-500 mt-1">✗ {{ v.error }}</p>
               }
             }
-            @if (isContextMissing()) {
-              <p class="text-xs text-orange-500 mt-1">
-                Required — your work experience document. CV generation will not work without this.
-              </p>
-            } @else {
-              <p class="text-xs text-gray-400 mt-1">
-                A Google Doc containing your work history and experience. The AI reads this to generate your CV.
-              </p>
-            }
+            <p class="text-xs text-gray-400 mt-1">
+              A Google Doc with your work history. Leave empty to provide context via instructions or chat.
+            </p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">
@@ -135,8 +126,6 @@ export class SettingsComponent implements OnInit {
   saved = signal(false);
   saveError = signal(false);
   validation = signal<SettingsValidation>({});
-
-  isContextMissing = computed(() => !this.loading() && !this.settings.contextDocId?.trim());
 
   ngOnInit() {
     this.userApi.getSettings().subscribe({

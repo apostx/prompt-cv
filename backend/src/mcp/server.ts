@@ -85,7 +85,7 @@ export function createServer(options: McpServerOptions = {}): McpServer {
 
   const server = new McpServer({
     name: 'prompt-cv',
-    version: '2.0.0',
+    version: '2.1.0',
   });
 
   // --- General ---
@@ -112,6 +112,9 @@ export function createServer(options: McpServerOptions = {}): McpServer {
         return textResult(doc.content);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('403') || msg.includes('forbidden') || msg.includes('insufficient')) {
+          return errorResult(403, `Access denied for document ${Array.isArray(documentId) ? documentId.join(', ') : documentId}. The user may need to grant "View your Google Drive files" permission in Security settings, or share the document with the app.`);
+        }
         return errorResult(500, msg);
       }
     },
@@ -147,16 +150,24 @@ export function createServer(options: McpServerOptions = {}): McpServer {
         const settings: Record<string, string> = {};
         const warnings: string[] = [];
 
+        // Fetch context doc content inline if configured (optional — skipped if empty)
+        let contextContent: string | undefined;
         if (userSettings?.contextDocId) {
           settings.contextDocId = userSettings.contextDocId;
-        } else {
-          warnings.push('contextDocId is not configured. Set your work experience document ID in Settings. The AI cannot generate a CV without it.');
+          try {
+            const doc = await getDocument(userSettings.contextDocId, clients);
+            contextContent = doc.content;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Unknown error';
+            warnings.push(`Failed to load context document: ${msg}. You can still ask the user for their work history.`);
+          }
         }
 
+        // Template is required for finalization but content is not returned
         if (userSettings?.templateDocId) {
           settings.templateDocId = userSettings.templateDocId;
         } else {
-          warnings.push('templateDocId is not configured. Set your CV template document ID in Settings. The AI cannot finalize a CV without it.');
+          warnings.push('templateDocId is not configured. The user must set a CV template document ID in Settings before a CV can be generated.');
         }
 
         const response: Record<string, unknown> = {
@@ -164,11 +175,15 @@ export function createServer(options: McpServerOptions = {}): McpServer {
           prompt: replacePlaceholders(instructionsText),
           settings,
         };
+        if (contextContent) response.context = contextContent;
         if (warnings.length > 0) response.warnings = warnings;
 
         return textResult(JSON.stringify(response));
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('403') || msg.includes('forbidden') || msg.includes('insufficient')) {
+          return errorResult(403, `Access denied reading a configured document. The user may need to grant "View your Google Drive files" permission in Security settings.`);
+        }
         return errorResult(500, msg);
       }
     },

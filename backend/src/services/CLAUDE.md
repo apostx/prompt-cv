@@ -38,7 +38,7 @@ Google OAuth helpers:
 - `exchangeCodeForTokens(code, redirectUri)` — exchange auth code for tokens
 - `refreshGoogleToken(refreshToken)` — refresh expired access token
 - `signJwt(payload)` / `verifyJwt(token)` — JWT sign/verify using jose library (payload includes optional `isAdmin`)
-- `verifyScopes(accessToken)` — check granted OAuth scopes match required scopes
+- `verifyScopes(grantedScopes)` — check granted OAuth scopes match required scopes (only `drive.file` is required; `drive.readonly` is optional)
 - `revokeGoogleToken(token)` — revoke Google refresh token via Google's revocation endpoint
 
 ### user-store.ts

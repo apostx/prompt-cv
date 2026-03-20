@@ -6,16 +6,21 @@ vi.stubEnv('JWT_SECRET', 'test-secret-key-for-vitest-at-least-32-chars');
 describe('verifyScopes', () => {
   it('returns all required scopes when input is undefined', () => {
     const missing = verifyScopes(undefined);
-    expect(missing).toContain('https://www.googleapis.com/auth/drive.readonly');
     expect(missing).toContain('https://www.googleapis.com/auth/drive.file');
+    expect(missing).not.toContain('https://www.googleapis.com/auth/drive.readonly');
   });
 
   it('returns empty array when all scopes granted', () => {
+    const granted = 'openid email profile https://www.googleapis.com/auth/drive.file';
+    expect(verifyScopes(granted)).toEqual([]);
+  });
+
+  it('returns empty array when drive.readonly also granted', () => {
     const granted = 'openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
     expect(verifyScopes(granted)).toEqual([]);
   });
 
-  it('returns missing scopes when partial grant', () => {
+  it('returns missing drive.file when only drive.readonly granted', () => {
     const granted = 'openid email profile https://www.googleapis.com/auth/drive.readonly';
     const missing = verifyScopes(granted);
     expect(missing).toEqual(['https://www.googleapis.com/auth/drive.file']);

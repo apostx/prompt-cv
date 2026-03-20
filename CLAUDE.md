@@ -41,7 +41,7 @@ prompt-cv/
 | Tool | Description |
 |------|-------------|
 | `get_doc_content` | Retrieve plain text of Google Docs (single or batch) |
-| `get_cv_instructions` | Start CV session, return instructions + settings + warnings |
+| `get_cv_instructions` | Start CV session, return instructions + context content + settings |
 | `update_cv_data` | Deep-merge data into session (optional finalize) |
 | `finalize_cv` | Generate CV from session data + template |
 | `optimize_cv` | Fit CV within target pages via margin optimization |
@@ -49,7 +49,7 @@ prompt-cv/
 ## User Settings
 Each user can configure:
 - `folderPath` — Google Drive folder for generated CVs (default: `cv/generated`)
-- `contextDocId` — Work experience document (required for CV generation)
+- `contextDocId` — Work experience document (optional, content returned inline by `get_cv_instructions`)
 - `instructionsDocId` — Custom AI instructions (falls back to default)
 - `templateDocId` — Handlebars CV template (falls back to default)
 

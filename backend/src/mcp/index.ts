@@ -165,11 +165,56 @@ app.post('/mcp', async (req: Request, res: Response) => {
     return;
   }
 
+  // Stateless fallback: expired/unknown session with Bearer token — handle without session
+  const token = extractBearerToken(req);
+  if (token) {
+    console.log(`[stateless] Handling ${req.body?.method || 'unknown'} for expired session ${sessionId || 'none'}`);
+
+    let userId: string | null;
+    try {
+      userId = await getUserByAccessToken(token);
+    } catch {
+      res.status(401).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: invalid token' }, id: req.body?.id ?? null });
+      return;
+    }
+    if (!userId) {
+      res.status(401).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: invalid or expired token' }, id: req.body?.id ?? null });
+      return;
+    }
+
+    let clients;
+    try {
+      clients = await getGoogleClientsForUser(userId);
+    } catch {
+      res.status(500).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Failed to initialize Google API clients' }, id: req.body?.id ?? null });
+      return;
+    }
+
+    const user = await getUser(userId);
+    const userSettings = user?.settings || {};
+
+    const tempTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+
+    const tempServer = createServer({ clients, userToken: token, userSettings });
+    await tempServer.connect(tempTransport);
+
+    try {
+      await tempTransport.handleRequest(req, res, req.body);
+    } finally {
+      await tempServer.close().catch(() => {});
+      await tempTransport.close().catch(() => {});
+    }
+    return;
+  }
+
   console.warn(`[request] Rejected POST: sessionId=${sessionId || 'none'}, isInit=${isInitializeRequest(req.body)}, body.method=${req.body?.method}`);
   res.status(400).json({
     jsonrpc: '2.0',
     error: { code: -32000, message: 'Bad Request: missing session ID or not an initialize request' },
-    id: null,
+    id: req.body?.id ?? null,
   });
 });
 

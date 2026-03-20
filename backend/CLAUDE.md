@@ -8,9 +8,9 @@ src/
 │   ├── cv-api-auth.ts      # Auth stack Lambda — per-user Google credentials, admin endpoints
 │   └── auth-api.ts         # Auth stack Lambda — OAuth flows (web + MCP), revoke, stats
 ├── mcp/                    # See src/mcp/CLAUDE.md
-│   ├── index.ts            # Express server (EC2), session management, OAuth discovery
-│   ├── server.ts           # MCP tool definitions (5 tools), createServer()
-│   └── session-store.ts    # DynamoDB CV data sessions (UUID keyed, 1h TTL, deep merge)
+│   ├── index.ts            # Stateless Express server (EC2), per-request auth, OAuth discovery
+│   ├── server.ts           # MCP tool definitions (6 tools), createServer()
+│   └── session-store.ts    # DynamoDB CV data sessions (UUID keyed, userId-scoped, 1h TTL, max 20/user)
 ├── services/               # See src/services/CLAUDE.md
 │   ├── google-docs.ts      # Google Docs/Drive API wrapper (20+ functions)
 │   ├── cv-generation.ts     # Shared CV generation logic (template → doc)

@@ -89,7 +89,7 @@ export function autoLinkText(html: string): string {
   );
   // URLs → https: links (skip existing <a> tags)
   result = result.replace(
-    /(<a\s[^>]*>[\s\S]*?<\/a>)|(https?:\/\/[\w.-]+\.[a-z]{2,}(?:\/[\w./?&=%-]*)?|www\.[\w.-]+\.[a-z]{2,}(?:\/[\w./?&=%-]*)?|(?<![.\w])[\w-]+\.(?:com|org|net|io|dev|co)\b(?:\/[\w./?&=%-]*)?)/gi,
+    /(<a\s[^>]*>[\s\S]*?<\/a>)|(https?:\/\/[\w.-]+\.[a-z]{2,}(?:\/[\w./?&=%-]*)?|www\.[\w.-]+\.[a-z]{2,}(?:\/[\w./?&=%-]*)?|(?<![.\w])[\w-]+\.(?:com|org|net)\b(?:\/[\w./?&=%-]*)?)/gi,
     (match, existingLink, url) => {
       if (existingLink || !url) return match;
       const href = url.startsWith('http') ? url : `https://${url}`;

@@ -68,6 +68,16 @@ describe('autoLinkText', () => {
     const input = 'Check example.com for details';
     expect(autoLinkText(input)).toContain('href="https://example.com"');
   });
+
+  it('does not link bare .io domains (e.g. socket.io, ktor.io)', () => {
+    const input = 'Experience with socket.io and ktor.io';
+    expect(autoLinkText(input)).toBe(input);
+  });
+
+  it('still links explicit https .io URLs', () => {
+    const input = 'Visit https://socket.io for docs';
+    expect(autoLinkText(input)).toContain('href="https://socket.io"');
+  });
 });
 
 describe('extractParagraphIndents', () => {

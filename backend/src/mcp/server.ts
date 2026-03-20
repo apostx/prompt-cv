@@ -78,14 +78,15 @@ export interface McpServerOptions {
   clients?: GoogleClients;
   userToken?: string;
   userSettings?: UserSettings;
+  userId?: string;
 }
 
 export function createServer(options: McpServerOptions = {}): McpServer {
-  const { clients, userToken, userSettings } = options;
+  const { clients, userToken, userSettings, userId } = options;
 
   const server = new McpServer({
     name: 'prompt-cv',
-    version: '2.1.0',
+    version: '2.2.0',
   });
 
   // --- General ---
@@ -129,7 +130,8 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     { readOnlyHint: true, destructiveHint: false },
     async () => {
       try {
-        const session = await sessionStore.create();
+        if (!userId) return errorResult(400, 'User authentication required');
+        const session = await sessionStore.create(userId);
 
         // Priority: user setting > env var > default file from frontend
         const instructionsDocId = userSettings?.instructionsDocId || INSTRUCTIONS_DOC_ID;
@@ -205,16 +207,18 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     { readOnlyHint: false, destructiveHint: false },
     async ({ sessionId, data, finalize, templateDocId }) => {
       try {
+        if (!userId) return errorResult(400, 'User authentication required');
         const items = Array.isArray(data) ? data : [data];
         let session;
         for (const item of items) {
-          session = await sessionStore.update(sessionId, item);
+          session = await sessionStore.update(sessionId, userId, item);
         }
         if (!session) return errorResult(404, `Session ${sessionId} not found`);
 
         if (finalize) {
           if (!templateDocId) return errorResult(400, 'templateDocId is required when finalize=true');
           const { documentId, url } = await invokeCvLambda(templateDocId, session.data, userToken);
+          await sessionStore.delete(sessionId, userId);
           return textResult(JSON.stringify({ sessionId: session.id, data: session.data, cv: { documentId, url } }));
         }
 
@@ -235,14 +239,35 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     async ({ sessionId, templateDocId }) => {
-      const session = await sessionStore.get(sessionId);
+      if (!userId) return errorResult(400, 'User authentication required');
+      const session = await sessionStore.get(sessionId, userId);
       if (!session) return errorResult(404, `Session ${sessionId} not found`);
       try {
         const { documentId, url } = await invokeCvLambda(templateDocId, session.data, userToken);
+        await sessionStore.delete(sessionId, userId);
         return textResult(['OK', `ID: ${documentId}`, `Link: ${url}`].join('\n'));
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         console.error('finalize_cv error:', err);
+        return errorResult(500, msg);
+      }
+    },
+  );
+
+  // --- Session Management ---
+
+  server.tool(
+    'reset_sessions',
+    'Delete all active CV sessions for the current user. Use when stuck or to clean up before starting fresh.',
+    {},
+    { readOnlyHint: false, destructiveHint: true },
+    async () => {
+      if (!userId) return errorResult(400, 'User authentication required');
+      try {
+        const count = await sessionStore.deleteAllForUser(userId);
+        return textResult(`Deleted ${count} active session${count !== 1 ? 's' : ''}.`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
         return errorResult(500, msg);
       }
     },

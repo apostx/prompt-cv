@@ -36,15 +36,16 @@ prompt-cv/
 | `prompt-cv-auth` | `template-auth.yaml` | Auth: DynamoDB tables, Auth Lambda, CV Auth Lambda |
 | `prompt-cv-mcp` | `template-mcp.yaml` | MCP: EC2 + CloudFront for persistent connections |
 
-## MCP Tools (v2.0.0)
+## MCP Tools (v2.2.0)
 
 | Tool | Description |
 |------|-------------|
 | `get_doc_content` | Retrieve plain text of Google Docs (single or batch) |
 | `get_cv_instructions` | Start CV session, return instructions + context content + settings |
-| `update_cv_data` | Deep-merge data into session (optional finalize) |
-| `finalize_cv` | Generate CV from session data + template |
+| `update_cv_data` | Deep-merge data into session (optional finalize, auto-cleanup) |
+| `finalize_cv` | Generate CV from session data + template (auto-cleanup) |
 | `optimize_cv` | Fit CV within target pages via margin optimization |
+| `reset_sessions` | Delete all active CV sessions for the current user |
 
 ## User Settings
 Each user can configure:

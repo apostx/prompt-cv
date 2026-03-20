@@ -54,9 +54,18 @@ Resources:
       AttributeDefinitions:
         - AttributeName: sessionId
           AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
       KeySchema:
         - AttributeName: sessionId
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: userId-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true
@@ -107,8 +116,10 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                   - dynamodb:DeleteItem
+                  - dynamodb:Query
                 Resource:
                   - !GetAtt SessionsTable.Arn
+                  - !Sub "${SessionsTable.Arn}/index/userId-index"
         - PolicyName: DynamoDBReadTokens
           PolicyDocument:
             Version: "2012-10-17"

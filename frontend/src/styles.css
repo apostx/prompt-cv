@@ -246,9 +246,6 @@
   .mb-6 {
     margin-bottom: calc(var(--spacing) * 6);
   }
-  .ml-0\.5 {
-    margin-left: calc(var(--spacing) * 0.5);
-  }
   .block {
     display: block;
   }
@@ -412,9 +409,6 @@
   .border-gray-300 {
     border-color: var(--color-gray-300);
   }
-  .border-orange-400 {
-    border-color: var(--color-orange-400);
-  }
   .border-red-200 {
     border-color: var(--color-red-200);
   }
@@ -569,9 +563,6 @@
   }
   .text-green-700 {
     color: var(--color-green-700);
-  }
-  .text-orange-500 {
-    color: var(--color-orange-500);
   }
   .text-orange-600 {
     color: var(--color-orange-600);

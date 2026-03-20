@@ -2,7 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { google } from 'googleapis';
 import type { docs_v1 } from 'googleapis';
-import { refreshGoogleToken } from './auth.js';
+
 
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const TABLE_NAME = process.env.USERS_TABLE || 'prompt-cv-users';
@@ -111,18 +111,22 @@ export async function getGoogleClientsForUser(userId: string): Promise<GoogleCli
   oauth2Client.setCredentials({
     access_token: user.googleAccessToken,
     refresh_token: user.googleRefreshToken,
+    expiry_date: user.googleTokenExpiry,
   });
 
-  // Auto-refresh if expired
-  if (Date.now() >= user.googleTokenExpiry) {
-    const credentials = await refreshGoogleToken(user.googleRefreshToken);
-    oauth2Client.setCredentials(credentials);
-    await saveUser({
-      ...user,
-      googleAccessToken: credentials.access_token || user.googleAccessToken,
-      googleTokenExpiry: credentials.expiry_date || Date.now() + 3600_000,
-    });
-  }
+  // Persist refreshed tokens back to DynamoDB
+  oauth2Client.on('tokens', async (tokens) => {
+    try {
+      const updates: Partial<User> = {};
+      if (tokens.access_token) updates.googleAccessToken = tokens.access_token;
+      if (tokens.expiry_date) updates.googleTokenExpiry = tokens.expiry_date;
+      if (Object.keys(updates).length > 0) {
+        await saveUser({ ...user, ...updates });
+      }
+    } catch (err) {
+      console.error('[token-refresh] Failed to persist refreshed token:', err);
+    }
+  });
 
   return {
     docs: google.docs({ version: 'v1', auth: oauth2Client }),

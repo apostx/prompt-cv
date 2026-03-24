@@ -35,7 +35,7 @@ src/
 
 ### Dual Auth Strategy
 - **Web (JWT):** `auth-api.ts` issues JWT on Google OAuth callback, frontend sends as Bearer token
-- **MCP (opaque tokens):** `auth-api.ts` issues opaque tokens via OAuth 2.0 flow, stored in DynamoDB with 7-day TTL
+- **MCP (opaque tokens):** `auth-api.ts` issues opaque tokens via OAuth 2.0 flow, stored in DynamoDB with 30-min TTL (no application-level expiry — token valid as long as DynamoDB item exists)
 
 ### CV Generation Flow (cv-generation.ts)
 Both `cv-api.ts` and `cv-api-auth.ts` delegate to the shared `generateCv()` service:

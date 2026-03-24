@@ -12,6 +12,7 @@ export interface UserSettings {
   contextDocId?: string;
   instructionsDocId?: string;
   templateDocId?: string;
+  initialized?: boolean;
 }
 
 export interface User {
@@ -102,6 +103,7 @@ export interface GoogleClients {
 export async function getGoogleClientsForUser(userId: string): Promise<GoogleClients> {
   const user = await getUser(userId);
   if (!user) throw new Error('User not found');
+  if (!user.googleRefreshToken) throw new Error('Google credentials not configured. Please log in at the web app.');
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -127,6 +129,11 @@ export async function getGoogleClientsForUser(userId: string): Promise<GoogleCli
       console.error('[token-refresh] Failed to persist refreshed token:', err);
     }
   });
+
+  // Eagerly refresh if expired — catches revoked tokens early with a clear error
+  if (Date.now() >= user.googleTokenExpiry) {
+    await oauth2Client.getAccessToken();
+  }
 
   return {
     docs: google.docs({ version: 'v1', auth: oauth2Client }),

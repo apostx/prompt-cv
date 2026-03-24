@@ -1,7 +1,7 @@
 import Handlebars from 'handlebars';
 import {
   exportDocumentAsHtml,
-  findOrCreateFolder,
+  resolveOrCreateFolderId,
   findFileByName,
   createDocumentFromHtml,
   updateDocumentFromHtml,
@@ -39,11 +39,7 @@ export async function generateCv(options: CvGenerateOptions): Promise<CvGenerate
     throw new Error('Could not derive filename from data.header.name, data.application.position, data.application.company');
   }
 
-  const folderParts = folderPath.split('/').filter(Boolean);
-  let parentId: string | undefined;
-  for (const part of folderParts) {
-    parentId = await findOrCreateFolder(part, parentId, clients);
-  }
+  const parentId = await resolveOrCreateFolderId(folderPath, clients);
 
   const indents = extractParagraphIndents(renderedHtml);
   const existingId = await findFileByName(filename, parentId, clients);

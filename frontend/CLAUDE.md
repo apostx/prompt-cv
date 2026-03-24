@@ -56,10 +56,9 @@ Dashboard is a parent route with child routes. Each tab is a separate component:
 
 ## Settings Component
 The settings form (`settings.component.ts`) handles:
-- **Fields:** folderPath, contextDocId (required), instructionsDocId, templateDocId
-- **Validation indicators:** green checkmark + title for valid docs, red X + error for invalid
-- **Required field indicator:** contextDocId shows orange border when empty (but doesn't block save)
-- **Save flow:** validates doc IDs on backend before saving; 400 response shows validation errors
+- **Fields:** folderPath (required), contextDocId (required), instructionsDocId (required), templateDocId (required)
+- **Validation indicators:** green checkmark + title for valid docs, red X + error for invalid, orange border for empty required fields
+- **Save flow:** Save disabled unless all fields filled and validated; backend also rejects incomplete settings
 - **Types:** `DocValidation`, `SettingsValidation` interfaces in `user-api.service.ts`
 
 ## Build Commands

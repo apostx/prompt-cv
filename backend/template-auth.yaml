@@ -22,6 +22,10 @@ Parameters:
     Type: String
     Description: MCP server URL (shown in frontend dashboard)
     Default: ""
+  GoogleApiKey:
+    Type: String
+    Description: Google API key for Picker API (browser-safe)
+    Default: ""
 
 Globals:
   Function:
@@ -222,6 +226,13 @@ Resources:
       RouteKey: "POST /oauth/token"
       Target: !Sub "integrations/${AuthIntegration}"
 
+  OAuthMcpSetupRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /oauth/mcp-setup"
+      Target: !Sub "integrations/${AuthIntegration}"
+
   StatsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -258,6 +269,8 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           OAUTH_TOKENS_TABLE: !Ref OAuthTokensTable
           CORS_ORIGINS: !Ref FrontendUrl
+          FRONTEND_URL: !Ref FrontendUrl
+          GOOGLE_API_KEY: !Ref GoogleApiKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
@@ -353,6 +366,48 @@ Resources:
     Properties:
       ApiId: !Ref AuthApi
       RouteKey: "GET /user/files"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserPickerConfigRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /user/picker-config"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserDocsCreateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /user/docs/create"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserValidateDocRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /user/validate-doc"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserResolveFolderRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /user/resolve-folder"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserSetupCheckRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /user/setup-check"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserSetupInitRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "POST /user/setup-init"
       Target: !Sub "integrations/${CvAuthIntegration}"
 
 Outputs:

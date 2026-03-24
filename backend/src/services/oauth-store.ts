@@ -62,21 +62,54 @@ export async function consumeAuthCode(code: string): Promise<AuthCode | null> {
   return item;
 }
 
+// --- MCP Setup Tokens (short-lived, for first-time onboarding redirect) ---
+
+export interface McpSetup {
+  code: string;
+  jwt: string;
+  authCode: string;
+  redirectUri: string;
+  state: string;
+  expiresAt: number;
+}
+
+export async function saveMcpSetup(params: Omit<McpSetup, 'code' | 'expiresAt'>): Promise<string> {
+  const code = randomUUID();
+  const expiresAt = Math.floor(Date.now() / 1000) + 600; // 10 min TTL
+  await client.send(new PutCommand({
+    TableName: CODES_TABLE,
+    Item: { code, ...params, expiresAt },
+  }));
+  return code;
+}
+
+export async function consumeMcpSetup(code: string): Promise<McpSetup | null> {
+  const result = await client.send(new GetCommand({ TableName: CODES_TABLE, Key: { code } }));
+  if (!result.Item) return null;
+  await client.send(new DeleteCommand({ TableName: CODES_TABLE, Key: { code } }));
+  const item = result.Item as McpSetup;
+  if (item.expiresAt < Math.floor(Date.now() / 1000)) return null;
+  return item;
+}
+
 // --- Access Tokens (opaque, for MCP) ---
 
 export interface AccessToken {
   token: string;
   userId: string;
   createdAt: string;
-  expiresAt: number;
+  expiresAt?: number;
 }
 
 export async function saveAccessToken(userId: string): Promise<string> {
   const token = randomUUID();
-  const expiresAt = Math.floor(Date.now() / 1000) + 7 * 24 * 3600; // 7 days
   await client.send(new PutCommand({
     TableName: TOKENS_TABLE,
-    Item: { token, userId, createdAt: new Date().toISOString(), expiresAt },
+    Item: {
+      token,
+      userId,
+      createdAt: new Date().toISOString(),
+    },
   }));
   return token;
 }
@@ -84,7 +117,5 @@ export async function saveAccessToken(userId: string): Promise<string> {
 export async function getUserByAccessToken(token: string): Promise<string | null> {
   const result = await client.send(new GetCommand({ TableName: TOKENS_TABLE, Key: { token } }));
   if (!result.Item) return null;
-  const item = result.Item as AccessToken;
-  if (item.expiresAt < Math.floor(Date.now() / 1000)) return null;
-  return item.userId;
+  return (result.Item as AccessToken).userId;
 }

@@ -15,3 +15,6 @@ client_secret_*.json
 
 # Logs
 *.log
+
+*storybook.log
+storybook-static

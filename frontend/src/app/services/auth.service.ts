@@ -55,6 +55,11 @@ export class AuthService {
     return false;
   }
 
+  setToken(token: string): void {
+    localStorage.setItem(this.TOKEN_KEY, token);
+    this.tokenSignal.set(token);
+  }
+
   private getStoredToken(): string | null {
     return localStorage.getItem(this.TOKEN_KEY);
   }

@@ -7,11 +7,14 @@ export const cvGenerateRequestSchema = z.object({
   data: z.record(z.string(), z.unknown()),
 });
 
+export const folderPathSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9._\-/]+$/, 'Invalid folder path format');
+
 export const userSettingsSchema = z.object({
-  folderPath: z.string().max(200).optional(),
-  contextDocId: googleDocIdSchema.optional().or(z.literal('')),
-  instructionsDocId: googleDocIdSchema.optional().or(z.literal('')),
-  templateDocId: googleDocIdSchema.optional().or(z.literal('')),
+  folderPath: folderPathSchema,
+  contextDocId: googleDocIdSchema,
+  instructionsDocId: googleDocIdSchema,
+  templateDocId: googleDocIdSchema,
+  initialized: z.boolean().optional(),
 });
 
 export const optimizeRequestSchema = z.object({
@@ -23,4 +26,22 @@ export const optimizeRequestSchema = z.object({
 
 export const docUpdateRequestSchema = z.object({
   content: z.string().min(1).max(5_000_000),
+});
+
+export const createDefaultDocSchema = z.object({
+  type: z.enum(['instructions', 'template', 'context']),
+  folderId: z.string().max(100).optional(),
+  title: z.string().max(200).optional(),
+});
+
+const setupFieldSchema = z.union([
+  z.literal('default'),
+  z.object({ id: googleDocIdSchema }),
+]);
+
+export const setupInitSchema = z.object({
+  folder: z.union([z.literal('default'), z.object({ id: z.string().max(100) })]),
+  context: setupFieldSchema,
+  instructions: setupFieldSchema,
+  template: setupFieldSchema,
 });

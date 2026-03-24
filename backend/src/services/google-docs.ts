@@ -123,6 +123,7 @@ export async function createDocument(
   };
 }
 
+
 /**
  * Update document content (replace all content)
  */
@@ -283,6 +284,72 @@ export async function findFolderByPath(folderPath: string, clients?: GoogleClien
     parentId = id;
   }
   return parentId ?? null;
+}
+
+/**
+ * Resolve a folder path (e.g. "cv/generated") or a folder ID to a folder ID.
+ * Tries path first (if contains '/'), then folder ID, then single folder name.
+ */
+export async function resolveFolderId(folderPathOrId: string, clients?: GoogleClients): Promise<string | null> {
+  if (folderPathOrId.includes('/')) {
+    return findFolderByPath(folderPathOrId, clients);
+  }
+  // Could be a folder ID or a single folder name — try as ID first
+  try {
+    const { drive } = getClients(clients);
+    const res = await drive.files.get({ fileId: folderPathOrId, fields: 'id,mimeType' });
+    if (res.data.mimeType === 'application/vnd.google-apps.folder') return folderPathOrId;
+  } catch { /* not a valid ID — try as folder name */ }
+  return findFolderByPath(folderPathOrId, clients);
+}
+
+/**
+ * Resolve a folder path or ID, creating folders as needed.
+ * Tries path first (if contains '/'), then folder ID, then single folder name (creates if missing).
+ */
+export async function resolveOrCreateFolderId(folderPathOrId: string, clients?: GoogleClients): Promise<string> {
+  if (folderPathOrId.includes('/')) {
+    const parts = folderPathOrId.split('/').filter(Boolean);
+    let parentId: string | undefined;
+    for (const part of parts) {
+      parentId = await findOrCreateFolder(part, parentId, clients);
+    }
+    return parentId!;
+  }
+  // Could be a folder ID
+  try {
+    const { drive } = getClients(clients);
+    const res = await drive.files.get({ fileId: folderPathOrId, fields: 'id,mimeType' });
+    if (res.data.mimeType === 'application/vnd.google-apps.folder') return folderPathOrId;
+  } catch { /* not a valid ID — treat as folder name */ }
+  return findOrCreateFolder(folderPathOrId, undefined, clients);
+}
+
+/**
+ * Move a file to a different folder in Google Drive
+ */
+export async function moveFileToFolder(fileId: string, folderId: string, clients?: GoogleClients): Promise<void> {
+  const { drive } = getClients(clients);
+  const file = await drive.files.get({ fileId, fields: 'parents' });
+  const previousParents = (file.data.parents || []).join(',');
+  await drive.files.update({
+    fileId,
+    addParents: folderId,
+    removeParents: previousParents,
+    fields: 'id,parents',
+  });
+}
+
+/**
+ * Get folder name by ID
+ */
+export async function getFolderName(folderId: string, clients?: GoogleClients): Promise<string | null> {
+  try {
+    const { drive } = getClients(clients);
+    const res = await drive.files.get({ fileId: folderId, fields: 'name,mimeType' });
+    if (res.data.mimeType === 'application/vnd.google-apps.folder') return res.data.name || null;
+    return null;
+  } catch { return null; }
 }
 
 /**

@@ -1,13 +1,15 @@
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { EXTENSION_ID, registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { z } from 'zod';
 
-import { getDocument, type GoogleClients } from '../services/google-docs.js';
-import type { UserSettings } from '../services/user-store.js';
+import { getDocument, getDocumentTitle, type GoogleClients } from '../services/google-docs.js';
+import { getUser, updateUserSettings, type UserSettings } from '../services/user-store.js';
 
 const CV_FUNCTION_NAME = process.env.CV_FUNCTION_NAME || '';
 import { optimizeCv } from '../services/cv-optimizer.js';
 import { sessionStore } from './session-store.js';
+import { settingsAppHtml } from './settings-app.js';
 
 const API_URL = process.env.API_URL || '';
 const CV_AUTH_FUNCTION_NAME = process.env.CV_AUTH_FUNCTION_NAME || '';
@@ -84,10 +86,10 @@ export interface McpServerOptions {
 export function createServer(options: McpServerOptions = {}): McpServer {
   const { clients, userToken, userSettings, userId } = options;
 
-  const server = new McpServer({
-    name: 'prompt-cv',
-    version: '2.2.0',
-  });
+  const server = new McpServer(
+    { name: 'prompt-cv', version: '2.4.0' },
+    { capabilities: { extensions: { [EXTENSION_ID]: {} } } as Record<string, unknown> },
+  );
 
   // --- General ---
 
@@ -292,6 +294,115 @@ export function createServer(options: McpServerOptions = {}): McpServer {
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         console.error('optimize_cv error:', err);
+        return errorResult(500, msg);
+      }
+    },
+  );
+
+  // --- Settings ---
+
+  const settingsResourceUri = 'ui://settings/app.html';
+
+  registerAppTool(
+    server,
+    'get_settings',
+    {
+      title: 'Settings',
+      description: 'Open settings form to configure CV generation preferences: folderPath, contextDocId, instructionsDocId, templateDocId.',
+      inputSchema: {},
+      _meta: {
+        ui: { resourceUri: settingsResourceUri },
+      },
+    },
+    async () => {
+      if (!userId) return errorResult(400, 'User authentication required');
+      try {
+        const user = await getUser(userId);
+        const settings = user?.settings || {};
+        return textResult(JSON.stringify(settings));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        return errorResult(500, msg);
+      }
+    },
+  );
+
+  registerAppResource(
+    server,
+    settingsResourceUri,
+    settingsResourceUri,
+    { mimeType: RESOURCE_MIME_TYPE },
+    async () => ({
+      contents: [{ uri: settingsResourceUri, mimeType: RESOURCE_MIME_TYPE, text: settingsAppHtml() }],
+    }),
+  );
+
+  server.tool(
+    'validate_doc',
+    'Validate a Google Doc ID and return its title. Used by the settings form to check document access.',
+    {
+      documentId: z.string().describe('Google Docs document ID to validate'),
+    },
+    { readOnlyHint: true, destructiveHint: false },
+    async ({ documentId }) => {
+      if (!userId) return errorResult(400, 'User authentication required');
+      try {
+        const doc = await getDocumentTitle(documentId, clients);
+        return textResult(JSON.stringify({ valid: true, title: doc.title }));
+      } catch (err: unknown) {
+        const code = (err as { code?: number })?.code || (err as { response?: { status?: number } })?.response?.status;
+        const error = code === 404 ? 'Document not found' : code === 403 ? 'No access to document' : 'Could not validate';
+        return textResult(JSON.stringify({ valid: false, error }));
+      }
+    },
+  );
+
+  server.tool(
+    'update_settings',
+    'Update user settings. Validates doc IDs against Google Docs API before saving. ' +
+    'Pass only the fields you want to change. Empty string clears a field.',
+    {
+      folderPath: z.string().max(500).optional().describe('Google Drive folder path for generated CVs (e.g. "cv/generated")'),
+      contextDocId: z.string().max(100).optional().describe('Google Doc ID for work history context'),
+      instructionsDocId: z.string().max(100).optional().describe('Google Doc ID for custom AI instructions'),
+      templateDocId: z.string().max(100).optional().describe('Google Doc ID for Handlebars CV template'),
+    },
+    { readOnlyHint: false, destructiveHint: false },
+    async (params) => {
+      if (!userId) return errorResult(400, 'User authentication required');
+      try {
+        const validation: Record<string, { valid: boolean; title?: string; error?: string }> = {};
+        const settings: UserSettings = {};
+
+        // Validate and collect each field
+        for (const field of ['contextDocId', 'instructionsDocId', 'templateDocId'] as const) {
+          if (params[field] === undefined) continue;
+          const value = params[field];
+          if (!value) {
+            settings[field] = '';
+            continue;
+          }
+          try {
+            const doc = await getDocumentTitle(value, clients);
+            validation[field] = { valid: true, title: doc.title };
+            settings[field] = value;
+          } catch (err: unknown) {
+            const code = (err as { code?: number })?.code || (err as { response?: { status?: number } })?.response?.status;
+            const error = code === 404 ? 'Document not found' : code === 403 ? 'No access to document' : 'Could not validate';
+            validation[field] = { valid: false, error };
+            return textResult(JSON.stringify({ error: `Invalid ${field}: ${error}`, validation }));
+          }
+        }
+
+        if (params.folderPath !== undefined) {
+          settings.folderPath = params.folderPath;
+        }
+
+        await updateUserSettings(userId, settings);
+        const user = await getUser(userId);
+        return textResult(JSON.stringify({ settings: user?.settings || {}, validation }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
         return errorResult(500, msg);
       }
     },

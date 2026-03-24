@@ -17,6 +17,13 @@ Parameters:
     Description: Google OAuth2 Refresh Token
     Default: ""
     NoEcho: true
+  AcmCertificateArn:
+    Type: String
+    Description: ACM certificate ARN (us-east-1) for custom domain
+    Default: ""
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref AcmCertificateArn, ""]]
+
 Globals:
   Function:
     Timeout: 60
@@ -148,10 +155,39 @@ Resources:
               StringEquals:
                 AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
 
+  RedirectFunction:
+    Type: AWS::CloudFront::Function
+    Condition: HasCustomDomain
+    Properties:
+      Name: prompt-cv-redirect-to-domain
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Redirect CloudFront default domain to custom domain
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var host = event.request.headers.host.value;
+          if (host.endsWith('.cloudfront.net')) {
+            return {
+              statusCode: 301,
+              statusDescription: 'Moved Permanently',
+              headers: { location: { value: 'https://promptcv.sallai.cc' + event.request.uri } }
+            };
+          }
+          return event.request;
+        }
+
   FrontendDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
+        Aliases: !If [HasCustomDomain, [promptcv.sallai.cc], !Ref "AWS::NoValue"]
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - !Ref "AWS::NoValue"
         Enabled: true
         DefaultRootObject: index.html
         Origins:
@@ -171,6 +207,11 @@ Resources:
             - HEAD
           Compress: true
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          FunctionAssociations: !If
+            - HasCustomDomain
+            - - EventType: viewer-request
+                FunctionARN: !GetAtt RedirectFunction.FunctionARN
+            - !Ref "AWS::NoValue"
         CustomErrorResponses:
           - ErrorCode: 403
             ResponseCode: 200

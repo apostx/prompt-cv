@@ -7,6 +7,8 @@ import {
   saveAuthCode,
   consumeAuthCode,
   saveAccessToken,
+  saveMcpSetup,
+  consumeMcpSetup,
 } from '../services/oauth-store.js';
 import { optionsResponse } from '../shared/cors.js';
 import { jsonResponse } from '../shared/response.js';
@@ -41,6 +43,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     if (path === '/oauth/authorize' && method === 'GET') return handleAuthorize(event);
     if (path === '/oauth/callback' && method === 'GET') return handleOAuthCallback(event);
     if (path === '/oauth/token' && method === 'POST') return handleToken(event);
+    if (path === '/oauth/mcp-setup' && method === 'GET') return handleMcpSetup(event);
 
     return jsonResponse(404, { error: 'Not found' });
   } catch (error) {
@@ -101,7 +104,7 @@ async function handleWebCallback(event: APIGatewayProxyEventV2): Promise<APIGate
     email: userInfo.email,
     name: userInfo.name,
     googleAccessToken: tokens.access_token!,
-    googleRefreshToken: tokens.refresh_token || existingUser?.googleRefreshToken || '',
+    googleRefreshToken: tokens.refresh_token || '',
     googleTokenExpiry: tokens.expiry_date || Date.now() + 3600_000,
     settings: existingUser?.settings || {},
   });
@@ -238,7 +241,7 @@ async function handleOAuthCallback(event: APIGatewayProxyEventV2): Promise<APIGa
     email: userInfo.email,
     name: userInfo.name,
     googleAccessToken: tokens.access_token!,
-    googleRefreshToken: tokens.refresh_token || existingMcpUser?.googleRefreshToken || '',
+    googleRefreshToken: tokens.refresh_token || '',
     googleTokenExpiry: tokens.expiry_date || Date.now() + 3600_000,
     settings: existingMcpUser?.settings || {},
   });
@@ -250,6 +253,18 @@ async function handleOAuthCallback(event: APIGatewayProxyEventV2): Promise<APIGa
     redirectUri,
     codeChallenge: codeChallenge || undefined,
   });
+
+  // First-time MCP users: redirect to frontend setup before completing connection
+  const isNewUser = !existingMcpUser || (!existingMcpUser.settings?.initialized && !existingMcpUser.settings?.templateDocId);
+  if (isNewUser && FRONTEND_URL) {
+    const jwt = await signJwt({ sub: userInfo.id, email: userInfo.email, name: userInfo.name, isAdmin: existingMcpUser?.isAdmin || undefined });
+    const setupToken = await saveMcpSetup({ jwt, authCode, redirectUri, state: clientState });
+    return {
+      statusCode: 302,
+      headers: { Location: `${FRONTEND_URL}/auth/callback#mcpSetup=${setupToken}` },
+      body: '',
+    };
+  }
 
   // Redirect back to MCP client with our auth code
   const separator = redirectUri.includes('?') ? '&' : '?';
@@ -301,6 +316,21 @@ async function handleToken(event: APIGatewayProxyEventV2): Promise<APIGatewayPro
   return jsonResponse(200, {
     access_token: accessToken,
     token_type: 'Bearer',
-    expires_in: 7 * 24 * 3600,
   });
+}
+
+async function handleMcpSetup(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
+  const origin = event.headers?.origin;
+  const token = event.queryStringParameters?.token;
+  if (!token) return jsonResponse(400, { error: 'Missing token' }, origin);
+
+  const setup = await consumeMcpSetup(token);
+  if (!setup) return jsonResponse(404, { error: 'Setup token not found or expired' }, origin);
+
+  return jsonResponse(200, {
+    jwt: setup.jwt,
+    code: setup.authCode,
+    redirectUri: setup.redirectUri,
+    state: setup.state,
+  }, origin);
 }

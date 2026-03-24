@@ -12,7 +12,13 @@ export class AuthCallbackComponent implements OnInit {
   private router = inject(Router);
 
   ngOnInit() {
-    if (this.auth.handleCallback()) {
+    const hash = window.location.hash;
+    const mcpSetup = hash.match(/mcpSetup=([^&]+)/)?.[1];
+    if (mcpSetup) {
+      // MCP setup flow — JWT will be fetched from API by setup component
+      sessionStorage.setItem('mcpSetup', mcpSetup);
+      this.router.navigate(['/setup']);
+    } else if (this.auth.handleCallback()) {
       this.router.navigate(['/']);
     } else {
       this.router.navigate(['/login']);

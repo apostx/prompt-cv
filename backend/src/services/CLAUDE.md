@@ -56,5 +56,5 @@ DynamoDB OAuth lifecycle for MCP clients:
 - `registerClient(clientName, redirectUri)` — register OAuth client
 - `saveAuthCode(code, clientId, userId, redirectUri)` — store auth code (10 min TTL)
 - `consumeAuthCode(code)` — exchange and delete auth code
-- `saveAccessToken(token, userId, clientId)` — store opaque token (7 day TTL)
+- `saveAccessToken(token, userId, clientId)` — store opaque token (30 min DynamoDB TTL, no app-level expiry)
 - `getUserByAccessToken(token)` — resolve token to userId

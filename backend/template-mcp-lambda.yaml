@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Prompt CV MCP Server - Lambda (testing)
+
+Parameters:
+  CvAuthFunctionName:
+    Type: String
+    Description: Name of the auth-wrapped CV API Lambda function
+  CvAuthFunctionArn:
+    Type: String
+    Description: ARN of the auth-wrapped CV API Lambda function
+  ApiUrl:
+    Type: String
+    Description: API Gateway URL for the CV API
+  AuthApiUrl:
+    Type: String
+    Description: Auth API Gateway URL (for OAuth discovery)
+  ContextDocId:
+    Type: String
+    Description: Google Doc ID for work context
+    Default: ""
+  InstructionsDocId:
+    Type: String
+    Description: Google Doc ID for CV generation instructions
+    Default: ""
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth2 Client ID
+    Default: ""
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth2 Client Secret
+    Default: ""
+    NoEcho: true
+  UsersTable:
+    Type: String
+    Description: DynamoDB Users table name
+    Default: prompt-cv-users
+  OAuthTokensTable:
+    Type: String
+    Description: DynamoDB OAuth Tokens table name
+    Default: prompt-cv-oauth-tokens
+  SessionsTable:
+    Type: String
+    Description: DynamoDB Sessions table name
+    Default: prompt-cv-sessions
+  FrontendUrl:
+    Type: String
+    Description: CloudFront URL of the frontend (for default instructions fallback)
+    Default: ""
+
+Globals:
+  Function:
+    Timeout: 300
+    Runtime: nodejs20.x
+    MemorySize: 1024
+    Tracing: Active
+    Environment:
+      Variables:
+        NODE_OPTIONS: --enable-source-maps
+
+Resources:
+  McpLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: mcp-api.handler
+      CodeUri: src/handlers/
+      Environment:
+        Variables:
+          API_URL: !Ref ApiUrl
+          AUTH_API_URL: !Ref AuthApiUrl
+          CV_AUTH_FUNCTION_NAME: !Ref CvAuthFunctionName
+          CONTEXT_DOC_ID: !Ref ContextDocId
+          INSTRUCTIONS_DOC_ID: !Ref InstructionsDocId
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          GOOGLE_CLIENT_SECRET: !Ref GoogleClientSecret
+          USERS_TABLE: !Ref UsersTable
+          OAUTH_TOKENS_TABLE: !Ref OAuthTokensTable
+          SESSIONS_TABLE: !Ref SessionsTable
+          FRONTEND_URL: !Ref FrontendUrl
+      FunctionUrlConfig:
+        AuthType: NONE
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CvAuthFunctionName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref OAuthTokensTable
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - mcp-api.ts
+        External:
+          - '@aws-sdk/*'
+
+Outputs:
+  McpLambdaFunctionUrl:
+    Description: MCP Lambda Function URL (testing)
+    Value: !GetAtt McpLambdaFunctionUrl.FunctionUrl
+  McpLambdaFunctionName:
+    Description: MCP Lambda Function Name
+    Value: !Ref McpLambdaFunction

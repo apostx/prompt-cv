@@ -43,6 +43,13 @@ Parameters:
     Type: String
     Description: CloudFront URL of the frontend (for default instructions fallback)
     Default: ""
+  AcmCertificateArn:
+    Type: String
+    Description: ACM certificate ARN (us-east-1) for custom domain
+    Default: ""
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref AcmCertificateArn, ""]]
 
 Resources:
   # --- DynamoDB ---
@@ -201,6 +208,7 @@ Resources:
           USERS_TABLE=${UsersTable}
           OAUTH_TOKENS_TABLE=${OAuthTokensTable}
           FRONTEND_URL=${FrontendUrl}
+          MCP_URL=https://mcp.promptcv.sallai.cc/mcp
           SESSIONS_TABLE=prompt-cv-sessions
           AWS_REGION=${AWS::Region}
           NODE_OPTIONS=--enable-source-maps
@@ -239,6 +247,13 @@ Resources:
     DependsOn: McpEc2EipAssociation
     Properties:
       DistributionConfig:
+        Aliases: !If [HasCustomDomain, [mcp.promptcv.sallai.cc], !Ref "AWS::NoValue"]
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - !Ref "AWS::NoValue"
         Enabled: true
         Comment: Prompt CV MCP Server
         Origins:

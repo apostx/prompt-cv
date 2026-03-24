@@ -1,6 +1,6 @@
 {
   "name": "prompt-cv-frontend",
-  "version": "1.4.0",
+  "version": "1.10.0",
   "type": "module",
   "scripts": {
     "ng": "ng",
@@ -10,7 +10,9 @@
     "test:watch": "vitest",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "deploy": "npm run build && node scripts/deploy.js"
+    "deploy": "npm run build && node scripts/deploy.js",
+    "storybook": "ng run prompt-cv-frontend:storybook",
+    "build-storybook": "ng run prompt-cv-frontend:build-storybook"
   },
   "prettier": {
     "printWidth": 100,
@@ -51,6 +53,15 @@
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.2",
     "typescript-eslint": "^8.57.1",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "storybook": "^10.3.1",
+    "@storybook/angular": "^10.3.1",
+    "@storybook/addon-a11y": "^10.3.1",
+    "@storybook/addon-docs": "^10.3.1",
+    "@angular-devkit/build-angular": "^21.1.0",
+    "@angular-devkit/architect": "^0.2101.0",
+    "@angular-devkit/core": "^21.1.0",
+    "@angular/platform-browser-dynamic": "^21.1.0",
+    "eslint-plugin-storybook": "^10.3.1"
   }
 }

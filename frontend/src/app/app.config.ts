@@ -14,10 +14,13 @@ import { ApiComponent } from './components/dashboard/api.component';
 import { UsageComponent } from './components/dashboard/usage.component';
 import { SecurityComponent } from './components/dashboard/security.component';
 import { AdminComponent } from './components/dashboard/admin.component';
+import { SetupComponent } from './components/dashboard/setup.component';
+import { setupGuard } from './guards/setup.guard';
 
 const routes: Routes = [
   { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
   { path: 'auth/callback', component: AuthCallbackComponent },
+  { path: 'setup', component: SetupComponent, canActivate: [setupGuard] },
   {
     path: '',
     component: DashboardComponent,

@@ -1,8 +1,13 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import {
-  findFolderByPath,
+  resolveFolderId,
   updateDocumentFromHtml,
   getDocumentTitle,
+  createDocument,
+  moveFileToFolder,
+  findFolder,
+  findFileByName,
+  findOrCreateFolder,
   type GoogleClients,
 } from '../services/google-docs.js';
 import { generateCv } from '../services/cv-generation.js';
@@ -18,6 +23,8 @@ import {
   optimizeRequestSchema,
   docUpdateRequestSchema,
   userSettingsSchema,
+  createDefaultDocSchema,
+  setupInitSchema,
 } from '../shared/validation.js';
 
 interface AuthContext {
@@ -73,6 +80,48 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       const auth = await authenticate(event);
       if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
       return handleListFiles(auth);
+    }
+
+    if (path === '/user/picker-config' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleGetPickerConfig(auth.userId);
+    }
+
+    if (path === '/user/docs/create' && method === 'POST') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleCreateDefaultDoc(event, auth);
+    }
+
+    if (path === '/user/validate-doc' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      const docId = event.queryStringParameters?.id;
+      if (!docId) return jsonResponse(400, { error: 'Missing id parameter' });
+      const result = await validateDocId(docId, auth.clients);
+      return jsonResponse(200, result);
+    }
+
+    if (path === '/user/resolve-folder' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      const folderId = event.queryStringParameters?.id;
+      if (!folderId) return jsonResponse(400, { error: 'Missing id parameter' });
+      const folderPath = await resolveFolderPath(folderId, auth.clients);
+      return jsonResponse(200, { path: folderPath });
+    }
+
+    if (path === '/user/setup-check' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleSetupCheck(auth);
+    }
+
+    if (path === '/user/setup-init' && method === 'POST') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleSetupInit(event, auth);
     }
 
     // CV endpoints (auth-protected)
@@ -132,13 +181,62 @@ async function handleGetSettings(userId: string): Promise<APIGatewayProxyResultV
 interface DocValidation {
   valid: boolean;
   title?: string;
+  path?: string;
   error?: string;
+}
+
+async function resolveFolderPath(folderId: string, clients: GoogleClients): Promise<string | undefined> {
+  try {
+    const { drive } = clients;
+    const parts: string[] = [];
+    let currentId: string | undefined = folderId;
+    while (currentId && parts.length < 6) {
+      try {
+        const res = await drive.files.get({ fileId: currentId, fields: 'name,parents' });
+        const name = res.data.name as string | undefined;
+        const nextParents = res.data.parents as string[] | undefined;
+        if (!name) break;
+        parts.unshift(name);
+        currentId = nextParents?.[0];
+      } catch { break; }
+    }
+    if (!parts.length) return undefined;
+    // Strip root "My Drive" prefix — paths should be relative
+    if (parts[0] === 'My Drive') parts.shift();
+    return parts.length ? parts.join('/') : undefined;
+  } catch { return undefined; }
+}
+
+async function resolveDocPath(docId: string, clients: GoogleClients): Promise<string | undefined> {
+  try {
+    const { drive } = clients;
+    const file = await drive.files.get({ fileId: docId, fields: 'parents' });
+    const parents = file.data.parents;
+    if (!parents?.length) return undefined;
+
+    const parts: string[] = [];
+    let currentId: string | undefined = parents[0];
+    while (currentId && parts.length < 5) {
+      try {
+        const res = await drive.files.get({ fileId: currentId, fields: 'name,parents' });
+        const name = res.data.name as string | undefined;
+        const nextParents = res.data.parents as string[] | undefined;
+        if (!name) break;
+        parts.unshift(name);
+        currentId = nextParents?.[0];
+      } catch { break; }
+    }
+    return parts.length ? parts.join('/') : undefined;
+  } catch { return undefined; }
 }
 
 async function validateDocId(docId: string, clients: GoogleClients): Promise<DocValidation> {
   try {
-    const doc = await getDocumentTitle(docId, clients);
-    return { valid: true, title: doc.title };
+    const [doc, path] = await Promise.all([
+      getDocumentTitle(docId, clients),
+      resolveDocPath(docId, clients),
+    ]);
+    return { valid: true, title: doc.title, path };
   } catch (err: any) {
     const status = err?.code || err?.response?.status;
     if (status === 404) return { valid: false, error: 'Document not found. Check the ID.' };
@@ -157,15 +255,13 @@ async function handleUpdateSettings(event: APIGatewayProxyEventV2, auth: AuthCon
 
   const settings = parsed.data as UserSettings;
 
-  // Validate non-empty doc IDs before saving
+  // Validate all doc IDs before saving
   const docFields = ['contextDocId', 'instructionsDocId', 'templateDocId'] as const;
   const validation: Record<string, DocValidation> = {};
   await Promise.all(
-    docFields
-      .filter(field => settings[field]?.trim())
-      .map(async (field) => {
-        validation[field] = await validateDocId(settings[field]!, auth.clients);
-      }),
+    docFields.map(async (field) => {
+      validation[field] = await validateDocId(settings[field]!, auth.clients);
+    }),
   );
 
   const hasErrors = Object.values(validation).some(v => !v.valid);
@@ -181,7 +277,7 @@ async function handleUpdateSettings(event: APIGatewayProxyEventV2, auth: AuthCon
 async function handleListFiles(auth: AuthContext): Promise<APIGatewayProxyResultV2> {
   const user = await getUser(auth.userId);
   const folderPath = user?.settings?.folderPath || 'cv/generated';
-  const folderId = await findFolderByPath(folderPath, auth.clients);
+  const folderId = await resolveFolderId(folderPath, auth.clients);
   if (!folderId) return jsonResponse(200, { files: [] });
 
   const { drive } = auth.clients;
@@ -192,6 +288,183 @@ async function handleListFiles(auth: AuthContext): Promise<APIGatewayProxyResult
     pageSize: 50,
   });
   return jsonResponse(200, { files: response.data.files || [] });
+}
+
+// --- Picker / Doc Creation Handlers ---
+
+async function handleGetPickerConfig(userId: string): Promise<APIGatewayProxyResultV2> {
+  const user = await getUser(userId);
+  if (!user) return jsonResponse(404, { error: 'User not found' });
+
+  const appId = (process.env.GOOGLE_CLIENT_ID || '').split('-')[0];
+
+  // Refresh token if expired before returning
+  if (Date.now() >= user.googleTokenExpiry) {
+    await getGoogleClientsForUser(userId);
+    const refreshedUser = await getUser(userId);
+    return jsonResponse(200, {
+      accessToken: refreshedUser?.googleAccessToken || user.googleAccessToken,
+      apiKey: process.env.GOOGLE_API_KEY || '',
+      appId,
+    });
+  }
+
+  return jsonResponse(200, {
+    accessToken: user.googleAccessToken,
+    apiKey: process.env.GOOGLE_API_KEY || '',
+    appId,
+  });
+}
+
+async function handleCreateDefaultDoc(event: APIGatewayProxyEventV2, auth: AuthContext): Promise<APIGatewayProxyResultV2> {
+  let body: unknown;
+  try { body = parseBody(event); } catch { return jsonResponse(400, { error: 'Invalid JSON' }); }
+  if (!body) return jsonResponse(400, { error: 'Request body required' });
+
+  const parsed = createDefaultDocSchema.safeParse(body);
+  if (!parsed.success) return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues });
+
+  const { type, folderId, title: customTitle } = parsed.data;
+
+  let content: string | undefined;
+  let defaultTitle: string;
+
+  if (type === 'context') {
+    defaultTitle = 'My CV Context';
+  } else {
+    const frontendUrl = process.env.FRONTEND_URL || '';
+    const filename = type === 'instructions' ? 'instructions.txt' : 'schema.txt';
+    defaultTitle = type === 'instructions' ? 'My CV Instructions' : 'My CV Template';
+
+    const res = await fetch(`${frontendUrl}/defaults/${filename}`);
+    if (!res.ok) return jsonResponse(500, { error: `Failed to fetch default ${type}` });
+    content = await res.text();
+  }
+
+  const title = customTitle || defaultTitle;
+
+  const doc = await createDocument(title, content, auth.clients);
+
+  // Move to chosen folder if specified
+  if (folderId) {
+    await moveFileToFolder(doc.documentId, folderId, auth.clients);
+  }
+
+  return jsonResponse(200, {
+    documentId: doc.documentId,
+    title: doc.title,
+    url: `https://docs.google.com/document/d/${doc.documentId}`,
+  });
+}
+
+// --- Setup Handlers ---
+
+async function handleSetupCheck(auth: AuthContext): Promise<APIGatewayProxyResultV2> {
+  try {
+    const folderId = await findFolder('.prompt-cv', undefined, auth.clients);
+    if (!folderId) {
+      return jsonResponse(200, { files: {} });
+    }
+
+    const [contextDocId, instructionsDocId, templateDocId, generatedFolderId] = await Promise.all([
+      findFileByName('cv-context', folderId, auth.clients),
+      findFileByName('cv-instructions', folderId, auth.clients),
+      findFileByName('cv-template', folderId, auth.clients),
+      findFolder('generated', folderId, auth.clients),
+    ]);
+
+    return jsonResponse(200, {
+      folderId,
+      files: {
+        ...(contextDocId && { contextDocId }),
+        ...(instructionsDocId && { instructionsDocId }),
+        ...(templateDocId && { templateDocId }),
+        ...(generatedFolderId && { generatedFolderId }),
+      },
+    });
+  } catch (err) {
+    console.error('setup-check error:', err);
+    return jsonResponse(500, { error: err instanceof Error ? err.message : 'Internal error' });
+  }
+}
+
+async function handleSetupInit(event: APIGatewayProxyEventV2, auth: AuthContext): Promise<APIGatewayProxyResultV2> {
+  let body: unknown;
+  try { body = parseBody(event); } catch { return jsonResponse(400, { error: 'Invalid JSON' }); }
+  if (!body) return jsonResponse(400, { error: 'Request body required' });
+
+  const parsed = setupInitSchema.safeParse(body);
+  if (!parsed.success) return jsonResponse(400, { error: 'Invalid request', details: parsed.error.issues });
+
+  const { folder, context, instructions, template } = parsed.data;
+  const frontendUrl = process.env.FRONTEND_URL || '';
+
+  try {
+    // Resolve or create folder
+    let folderPath: string;
+    let promptCvFolderId: string;
+    if (folder === 'default') {
+      promptCvFolderId = await findOrCreateFolder('.prompt-cv', undefined, auth.clients);
+      await findOrCreateFolder('generated', promptCvFolderId, auth.clients);
+      folderPath = '.prompt-cv/generated';
+    } else {
+      folderPath = folder.id;
+      promptCvFolderId = ''; // manual folder — docs won't be auto-placed
+    }
+
+    // Create or use each doc
+    let contextDocId: string;
+    if (context === 'default') {
+      const doc = await createDocument('cv-context', undefined, auth.clients);
+      if (promptCvFolderId) await moveFileToFolder(doc.documentId, promptCvFolderId, auth.clients);
+      contextDocId = doc.documentId;
+    } else {
+      contextDocId = context.id;
+    }
+
+    let instructionsDocId: string;
+    if (instructions === 'default') {
+      let content: string | undefined;
+      if (frontendUrl) {
+        const res = await fetch(`${frontendUrl}/defaults/instructions.txt`);
+        if (res.ok) content = await res.text();
+      }
+      const doc = await createDocument('cv-instructions', content, auth.clients);
+      if (promptCvFolderId) await moveFileToFolder(doc.documentId, promptCvFolderId, auth.clients);
+      instructionsDocId = doc.documentId;
+    } else {
+      instructionsDocId = instructions.id;
+    }
+
+    let templateDocId: string;
+    if (template === 'default') {
+      let content: string | undefined;
+      if (frontendUrl) {
+        const res = await fetch(`${frontendUrl}/defaults/schema.txt`);
+        if (res.ok) content = await res.text();
+      }
+      const doc = await createDocument('cv-template', content, auth.clients);
+      if (promptCvFolderId) await moveFileToFolder(doc.documentId, promptCvFolderId, auth.clients);
+      templateDocId = doc.documentId;
+    } else {
+      templateDocId = template.id;
+    }
+
+    // Save settings
+    await updateUserSettings(auth.userId, {
+      folderPath,
+      contextDocId,
+      instructionsDocId,
+      templateDocId,
+      initialized: true,
+    });
+
+    const user = await getUser(auth.userId);
+    return jsonResponse(200, { settings: user?.settings || {} });
+  } catch (err) {
+    console.error('setup-init error:', err);
+    return jsonResponse(500, { error: err instanceof Error ? err.message : 'Internal error' });
+  }
 }
 
 // --- Admin Handlers ---

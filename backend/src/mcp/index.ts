@@ -3,8 +3,8 @@ import type { Request, Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import { createServer } from './server.js';
-import { getUserByAccessToken } from '../services/oauth-store.js';
-import { getGoogleClientsForUser, getUser } from '../services/user-store.js';
+import { authenticateMcpRequest } from './auth.js';
+import { settingsPage } from './settings-page.js';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
@@ -12,12 +12,20 @@ const app = express();
 app.use(express.json());
 
 // Request logging
-app.use((req: Request, _res: Response, next) => {
-  console.log(`${req.method} ${req.path}`);
-  if (req.method === 'POST' && req.body) {
-    const method = req.body.method || req.body[0]?.method || 'unknown';
-    console.log(`  -> ${method}`);
-  }
+app.use((req: Request, res: Response, next) => {
+  const startTime = Date.now();
+  const mcpMethod = req.method === 'POST' && req.body
+    ? (req.body.method || req.body[0]?.method || undefined)
+    : undefined;
+  console.log(JSON.stringify({
+    event: 'request', method: req.method, path: req.path, mcpMethod, timestamp: new Date().toISOString(),
+  }));
+  res.on('finish', () => {
+    console.log(JSON.stringify({
+      event: 'response', method: req.method, path: req.path, statusCode: res.statusCode,
+      durationMs: Date.now() - startTime,
+    }));
+  });
   next();
 });
 
@@ -38,6 +46,12 @@ app.use((_req: Request, res: Response, next) => {
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' });
+});
+
+// Settings UI — served as self-contained HTML page
+app.get('/settings', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(settingsPage(process.env.AUTH_API_URL || ''));
 });
 
 // Extract Bearer token from Authorization header
@@ -74,57 +88,22 @@ app.post('/mcp', async (req: Request, res: Response) => {
     return;
   }
 
-  let userId: string | null;
-  try {
-    userId = await getUserByAccessToken(token);
-  } catch (err) {
-    console.error('[auth] Token lookup failed:', err);
-    res.status(401).json({
+  const auth = await authenticateMcpRequest(token);
+  if (!auth.success) {
+    res.status(auth.status).json({
       jsonrpc: '2.0',
-      error: { code: -32000, message: 'Unauthorized: invalid token' },
+      error: { code: -32000, message: auth.message },
       id: req.body?.id ?? null,
     });
     return;
   }
-
-  if (!userId) {
-    res.status(401).json({
-      jsonrpc: '2.0',
-      error: { code: -32000, message: 'Unauthorized: invalid or expired token' },
-      id: req.body?.id ?? null,
-    });
-    return;
-  }
-
-  let clients;
-  try {
-    clients = await getGoogleClientsForUser(userId);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : '';
-    const isTokenError = msg.includes('unauthorized_client') || msg.includes('invalid_grant');
-    console.error('[auth] Failed to get Google clients for user:', isTokenError ? msg : err);
-    res.status(isTokenError ? 401 : 500).json({
-      jsonrpc: '2.0',
-      error: {
-        code: -32000,
-        message: isTokenError
-          ? 'Google credentials expired or revoked. Please log out and log back in at the web app to re-authorize.'
-          : 'Failed to initialize Google API clients',
-      },
-      id: req.body?.id ?? null,
-    });
-    return;
-  }
-
-  const user = await getUser(userId);
-  const userSettings = user?.settings || {};
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   });
 
-  const mcpServer = createServer({ clients, userToken: token, userSettings, userId });
+  const mcpServer = createServer(auth.options);
   await mcpServer.connect(transport);
 
   try {

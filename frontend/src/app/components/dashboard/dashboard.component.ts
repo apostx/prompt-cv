@@ -47,11 +47,14 @@ export class DashboardComponent {
   private tabs = [
     { path: '/settings', label: 'Settings' },
     { path: '/files', label: 'Generated CVs' },
+    { path: '/history', label: 'History' },
     { path: '/mcp', label: 'MCP' },
     { path: '/api', label: 'API' },
     { path: '/usage', label: 'Usage' },
     { path: '/security', label: 'Security' },
     { path: '/admin', label: 'Admin', admin: true },
+    { path: '/admin-history', label: 'CV Stats', admin: true },
+    { path: '/admin-config', label: 'Config', admin: true },
   ];
 
   visibleTabs = computed(() =>

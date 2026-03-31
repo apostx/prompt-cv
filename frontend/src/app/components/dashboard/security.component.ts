@@ -30,6 +30,13 @@ import { environment } from '../../../environments/environment';
           <li class="flex items-start gap-2">
             <span class="text-green-500 mt-0.5">&#10003;</span>
             <div>
+              <p class="font-medium text-gray-700">View files in your Google Drive</p>
+              <p class="text-gray-500">Required &mdash; used to read your templates, instructions, and context documents</p>
+            </div>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-green-500 mt-0.5">&#10003;</span>
+            <div>
               <p class="font-medium text-gray-700">View your basic profile info</p>
               <p class="text-gray-500">Name and email for account identification</p>
             </div>

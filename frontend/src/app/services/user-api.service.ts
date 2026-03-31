@@ -94,17 +94,65 @@ export class UserApiService {
     return this.http.post<{ settings: UserSettings }>(`${this.apiUrl}/user/setup-init`, config);
   }
 
-  getConfig(): Observable<{ mcpUrl: string }> {
-    return this.http.get<{ mcpUrl: string }>(`${this.apiUrl}/config`);
+  getConfig(): Observable<ConfigResponse> {
+    return this.http.get<ConfigResponse>(`${this.apiUrl}/config`);
   }
 
   getStats(): Observable<{ userCount: number; totalCvsGenerated: number }> {
     return this.http.get<{ userCount: number; totalCvsGenerated: number }>(`${this.apiUrl}/stats`);
   }
 
+  getHistory(): Observable<{ history: CvHistoryRecord[] }> {
+    return this.http.get<{ history: CvHistoryRecord[] }>(`${this.apiUrl}/user/history`);
+  }
+
+  updateHistoryStatus(documentId: string, status: string): Observable<void> {
+    return this.http.put<void>(`${this.apiUrl}/user/history/${encodeURIComponent(documentId)}/status`, { status });
+  }
+
   getAdminUsers(): Observable<{ users: AdminUser[] }> {
     return this.http.get<{ users: AdminUser[] }>(`${this.apiUrl}/admin/users`);
   }
+
+  getAdminHistory(): Observable<{ history: CvHistoryRecord[] }> {
+    return this.http.get<{ history: CvHistoryRecord[] }>(`${this.apiUrl}/admin/history`);
+  }
+
+  getAdminConfig(): Observable<{ config: ConfigEntry[] }> {
+    return this.http.get<{ config: ConfigEntry[] }>(`${this.apiUrl}/admin/config`);
+  }
+
+  setAdminConfig(key: string, value: string): Observable<{ success: boolean }> {
+    return this.http.put<{ success: boolean }>(`${this.apiUrl}/admin/config/${encodeURIComponent(key)}`, { value });
+  }
+
+  deleteAdminConfig(key: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(`${this.apiUrl}/admin/config/${encodeURIComponent(key)}`);
+  }
+}
+
+export interface CvHistoryStats {
+  jobTitle?: string;
+  jobDescription?: string;
+  jobLink?: string;
+  jobAnalysis?: string;
+  matchEvaluation?: string;
+  rating?: number;
+}
+
+export interface CvHistoryRecord {
+  userId: string;
+  createdAt: number;
+  email: string;
+  documentId: string;
+  documentUrl: string;
+  status: string;
+  stats?: CvHistoryStats;
+  cvData?: Record<string, unknown>;
+  templateDocId?: string;
+  templateContent?: string;
+  contextContent?: string;
+  instructionsContent?: string;
 }
 
 export interface AdminUser {
@@ -112,4 +160,21 @@ export interface AdminUser {
   name: string;
   cvsGenerated: number;
   createdAt: string;
+}
+
+export interface ConfigResponse {
+  mcpUrl: string;
+  prompts?: {
+    step3: string | null;
+    step4: string | null;
+    step5a: string | null;
+    step5b: string | null;
+  };
+}
+
+export interface ConfigEntry {
+  key: string;
+  value: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }

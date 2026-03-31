@@ -1,15 +1,16 @@
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { EXTENSION_ID, registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
+import { EXTENSION_ID } from '@modelcontextprotocol/ext-apps/server';
 import { z } from 'zod';
 
-import { getDocument, getDocumentTitle, type GoogleClients } from '../services/google-docs.js';
-import { getUser, updateUserSettings, type UserSettings } from '../services/user-store.js';
+import { getDocument, updateDocument, appendToDocument, type GoogleClients } from '../services/google-docs.js';
+import { getUser, type UserSettings } from '../services/user-store.js';
+import { historyStore, type HistoryRecord } from './history-store.js';
+import { configStore } from '../services/config-store.js';
 
 const CV_FUNCTION_NAME = process.env.CV_FUNCTION_NAME || '';
 import { optimizeCv } from '../services/cv-optimizer.js';
-import { sessionStore } from './session-store.js';
-import { settingsAppHtml } from './settings-app.js';
+import { sessionStore, type CvSession } from './session-store.js';
 
 const API_URL = process.env.API_URL || '';
 const CV_AUTH_FUNCTION_NAME = process.env.CV_AUTH_FUNCTION_NAME || '';
@@ -87,7 +88,7 @@ export function createServer(options: McpServerOptions = {}): McpServer {
   const { clients, userToken, userSettings, userId } = options;
 
   const server = new McpServer(
-    { name: 'prompt-cv', version: '2.4.0' },
+    { name: 'prompt-cv', version: '2.6.0' },
     { capabilities: { extensions: { [EXTENSION_ID]: {} } } as Record<string, unknown> },
   );
 
@@ -123,6 +124,33 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     },
   );
 
+  server.tool(
+    'update_doc_content',
+    'Update the plain text content of a Google Doc. Use to update context or instructions documents after CV generation.',
+    {
+      documentId: z.string().describe('Google Docs document ID'),
+      content: z.string().max(500_000).describe('Plain text content to write'),
+      mode: z.enum(['replace', 'append']).default('replace').describe('Write mode: replace all content or append to end'),
+    },
+    { readOnlyHint: false, destructiveHint: true },
+    async ({ documentId, content, mode }) => {
+      try {
+        if (mode === 'append') {
+          await appendToDocument(documentId, content, clients);
+        } else {
+          await updateDocument(documentId, content, clients);
+        }
+        return textResult(`Document ${documentId} updated (${mode}).`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('403') || msg.includes('forbidden')) {
+          return errorResult(403, `Access denied for document ${documentId}. The user may need to share the document.`);
+        }
+        return errorResult(500, msg);
+      }
+    },
+  );
+
   // --- CV Session Pipeline ---
 
   server.tool(
@@ -142,12 +170,17 @@ export function createServer(options: McpServerOptions = {}): McpServer {
         if (instructionsDocId) {
           const doc = await getDocument(instructionsDocId, clients);
           instructionsText = doc.content;
-        } else if (FRONTEND_URL) {
-          const res = await fetch(`${FRONTEND_URL}/defaults/instructions.txt`);
-          if (!res.ok) return errorResult(500, 'Failed to fetch default instructions');
-          instructionsText = await res.text();
         } else {
-          return errorResult(500, 'No instructions configured. Set instructionsDocId in settings or configure FRONTEND_URL.');
+          const configInstructions = await configStore.get('default-instructions');
+          if (configInstructions) {
+            instructionsText = configInstructions;
+          } else if (FRONTEND_URL) {
+            const res = await fetch(`${FRONTEND_URL}/defaults/instructions.txt`);
+            if (!res.ok) return errorResult(500, 'Failed to fetch default instructions');
+            instructionsText = await res.text();
+          } else {
+            return errorResult(500, 'No instructions configured. Set instructionsDocId in settings or configure FRONTEND_URL.');
+          }
         }
 
         // Build settings and warnings for the AI
@@ -196,7 +229,8 @@ export function createServer(options: McpServerOptions = {}): McpServer {
   server.tool(
     'update_cv_data',
     'Deep-merge data into the session store. Accepts a single object or an array of objects to merge sequentially. ' +
-    'Set finalize=true with a templateDocId to generate the CV after merging.',
+    'Set finalize=true with a templateDocId to generate the CV after merging. ' +
+    'Optionally include stats for job analysis tracking (triggers history storage on finalization).',
     {
       sessionId: z.string().uuid().describe('Session ID'),
       data: z.union([
@@ -205,9 +239,17 @@ export function createServer(options: McpServerOptions = {}): McpServer {
       ]).describe('Data to deep-merge into the session (single object or array of objects)'),
       finalize: z.boolean().optional().describe('If true, generate CV after merging data'),
       templateDocId: z.string().optional().describe('Google Docs template ID (required when finalize=true)'),
+      stats: z.object({
+        jobTitle: z.string().max(200).optional(),
+        jobDescription: z.string().max(5000).optional(),
+        jobLink: z.string().url().max(500).optional(),
+        jobAnalysis: z.string().max(5000).optional(),
+        matchEvaluation: z.string().max(5000).optional(),
+        rating: z.number().min(0).max(10).optional(),
+      }).optional().describe('Job analysis stats — if provided, CV history will be stored on finalization'),
     },
     { readOnlyHint: false, destructiveHint: false },
-    async ({ sessionId, data, finalize, templateDocId }) => {
+    async ({ sessionId, data, finalize, templateDocId, stats }) => {
       try {
         if (!userId) return errorResult(400, 'User authentication required');
         const items = Array.isArray(data) ? data : [data];
@@ -217,9 +259,14 @@ export function createServer(options: McpServerOptions = {}): McpServer {
         }
         if (!session) return errorResult(404, `Session ${sessionId} not found`);
 
+        if (stats) {
+          session = await sessionStore.updateStats(sessionId, userId, stats);
+        }
+
         if (finalize) {
           if (!templateDocId) return errorResult(400, 'templateDocId is required when finalize=true');
           const { documentId, url } = await invokeCvLambda(templateDocId, session.data, userToken);
+          await maybeSaveHistory(session, documentId, url, templateDocId, clients, userSettings);
           await sessionStore.delete(sessionId, userId);
           return textResult(JSON.stringify({ sessionId: session.id, data: session.data, cv: { documentId, url } }));
         }
@@ -246,6 +293,7 @@ export function createServer(options: McpServerOptions = {}): McpServer {
       if (!session) return errorResult(404, `Session ${sessionId} not found`);
       try {
         const { documentId, url } = await invokeCvLambda(templateDocId, session.data, userToken);
+        await maybeSaveHistory(session, documentId, url, templateDocId, clients, userSettings);
         await sessionStore.delete(sessionId, userId);
         return textResult(['OK', `ID: ${documentId}`, `Link: ${url}`].join('\n'));
       } catch (err) {
@@ -299,27 +347,20 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     },
   );
 
-  // --- Settings ---
+  // --- Context & Instructions ---
 
-  const settingsResourceUri = 'ui://settings/app.html';
-
-  registerAppTool(
-    server,
-    'get_settings',
-    {
-      title: 'Settings',
-      description: 'Open settings form to configure CV generation preferences: folderPath, contextDocId, instructionsDocId, templateDocId.',
-      inputSchema: {},
-      _meta: {
-        ui: { resourceUri: settingsResourceUri },
-      },
-    },
+  server.tool(
+    'read_cv_context',
+    'Read the current content of the user\'s CV context document (work history, experience, skills). Returns the full plain text.',
+    {},
+    { readOnlyHint: true, destructiveHint: false },
     async () => {
       if (!userId) return errorResult(400, 'User authentication required');
+      const docId = userSettings?.contextDocId;
+      if (!docId) return errorResult(400, 'No context document configured. Set contextDocId in Settings first.');
       try {
-        const user = await getUser(userId);
-        const settings = user?.settings || {};
-        return textResult(JSON.stringify(settings));
+        const doc = await getDocument(docId, clients);
+        return textResult(doc.content);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         return errorResult(500, msg);
@@ -327,86 +368,112 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     },
   );
 
-  registerAppResource(
-    server,
-    settingsResourceUri,
-    settingsResourceUri,
-    { mimeType: RESOURCE_MIME_TYPE },
-    async () => ({
-      contents: [{ uri: settingsResourceUri, mimeType: RESOURCE_MIME_TYPE, text: settingsAppHtml() }],
-    }),
+  server.tool(
+    'update_cv_context',
+    'Update the user\'s CV context document with new content. Always read_cv_context first to understand the current state, then update with the full revised content.',
+    {
+      content: z.string().max(500_000).describe('Full plain text content to replace the document with'),
+    },
+    { readOnlyHint: false, destructiveHint: true },
+    async ({ content }) => {
+      if (!userId) return errorResult(400, 'User authentication required');
+      const docId = userSettings?.contextDocId;
+      if (!docId) return errorResult(400, 'No context document configured. Set contextDocId in Settings first.');
+      try {
+        await updateDocument(docId, content, clients);
+        return textResult(`Context document updated.`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        return errorResult(500, msg);
+      }
+    },
   );
 
   server.tool(
-    'validate_doc',
-    'Validate a Google Doc ID and return its title. Used by the settings form to check document access.',
-    {
-      documentId: z.string().describe('Google Docs document ID to validate'),
-    },
+    'read_cv_instructions',
+    'Read the current content of the user\'s custom CV generation instructions document.',
+    {},
     { readOnlyHint: true, destructiveHint: false },
-    async ({ documentId }) => {
+    async () => {
       if (!userId) return errorResult(400, 'User authentication required');
+      const docId = userSettings?.instructionsDocId;
+      if (!docId) return errorResult(400, 'No instructions document configured. Set instructionsDocId in Settings first.');
       try {
-        const doc = await getDocumentTitle(documentId, clients);
-        return textResult(JSON.stringify({ valid: true, title: doc.title }));
-      } catch (err: unknown) {
-        const code = (err as { code?: number })?.code || (err as { response?: { status?: number } })?.response?.status;
-        const error = code === 404 ? 'Document not found' : code === 403 ? 'No access to document' : 'Could not validate';
-        return textResult(JSON.stringify({ valid: false, error }));
-      }
-    },
-  );
-
-  server.tool(
-    'update_settings',
-    'Update user settings. Validates doc IDs against Google Docs API before saving. ' +
-    'Pass only the fields you want to change. Empty string clears a field.',
-    {
-      folderPath: z.string().max(500).optional().describe('Google Drive folder path for generated CVs (e.g. "cv/generated")'),
-      contextDocId: z.string().max(100).optional().describe('Google Doc ID for work history context'),
-      instructionsDocId: z.string().max(100).optional().describe('Google Doc ID for custom AI instructions'),
-      templateDocId: z.string().max(100).optional().describe('Google Doc ID for Handlebars CV template'),
-    },
-    { readOnlyHint: false, destructiveHint: false },
-    async (params) => {
-      if (!userId) return errorResult(400, 'User authentication required');
-      try {
-        const validation: Record<string, { valid: boolean; title?: string; error?: string }> = {};
-        const settings: UserSettings = {};
-
-        // Validate and collect each field
-        for (const field of ['contextDocId', 'instructionsDocId', 'templateDocId'] as const) {
-          if (params[field] === undefined) continue;
-          const value = params[field];
-          if (!value) {
-            settings[field] = '';
-            continue;
-          }
-          try {
-            const doc = await getDocumentTitle(value, clients);
-            validation[field] = { valid: true, title: doc.title };
-            settings[field] = value;
-          } catch (err: unknown) {
-            const code = (err as { code?: number })?.code || (err as { response?: { status?: number } })?.response?.status;
-            const error = code === 404 ? 'Document not found' : code === 403 ? 'No access to document' : 'Could not validate';
-            validation[field] = { valid: false, error };
-            return textResult(JSON.stringify({ error: `Invalid ${field}: ${error}`, validation }));
-          }
-        }
-
-        if (params.folderPath !== undefined) {
-          settings.folderPath = params.folderPath;
-        }
-
-        await updateUserSettings(userId, settings);
-        const user = await getUser(userId);
-        return textResult(JSON.stringify({ settings: user?.settings || {}, validation }));
+        const doc = await getDocument(docId, clients);
+        return textResult(doc.content);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         return errorResult(500, msg);
       }
     },
   );
+
+  server.tool(
+    'update_cv_instructions',
+    'Update the user\'s custom CV generation instructions document. Always read_cv_instructions first to understand the current state, then update with the full revised content.',
+    {
+      content: z.string().max(500_000).describe('Full plain text content to replace the document with'),
+    },
+    { readOnlyHint: false, destructiveHint: true },
+    async ({ content }) => {
+      if (!userId) return errorResult(400, 'User authentication required');
+      const docId = userSettings?.instructionsDocId;
+      if (!docId) return errorResult(400, 'No instructions document configured. Set instructionsDocId in Settings first.');
+      try {
+        await updateDocument(docId, content, clients);
+        return textResult(`Instructions document updated.`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        return errorResult(500, msg);
+      }
+    },
+  );
+
+  async function maybeSaveHistory(
+    session: CvSession,
+    documentId: string,
+    documentUrl: string,
+    templateDocId: string,
+    googleClients?: GoogleClients,
+    settings?: UserSettings,
+  ): Promise<void> {
+    if (!session.stats || !userId) return;
+    try {
+      const user = await getUser(userId);
+      const email = user?.email || '';
+
+      // Fetch source docs for full process reconstruction (each independently)
+      let templateContent: string | undefined;
+      let contextContent: string | undefined;
+      let instructionsContent: string | undefined;
+
+      try { templateContent = (await getDocument(templateDocId, googleClients)).content; } catch { /* skip */ }
+      if (settings?.contextDocId) {
+        try { contextContent = (await getDocument(settings.contextDocId, googleClients)).content; } catch { /* skip */ }
+      }
+      if (settings?.instructionsDocId) {
+        try { instructionsContent = (await getDocument(settings.instructionsDocId, googleClients)).content; } catch { /* skip */ }
+      }
+
+      const record: HistoryRecord = {
+        userId,
+        createdAt: Date.now(),
+        email,
+        documentId,
+        documentUrl,
+        status: 'created',
+        cvData: JSON.stringify(session.data),
+        stats: JSON.stringify(session.stats),
+        templateDocId,
+        templateContent,
+        contextContent,
+        instructionsContent,
+      };
+      await historyStore.save(record);
+    } catch (err) {
+      console.error('[maybeSaveHistory] Failed to save history (non-fatal):', err);
+    }
+  }
 
   return server;
 }

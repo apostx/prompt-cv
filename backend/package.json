@@ -1,6 +1,6 @@
 {
   "name": "prompt-cv",
-  "version": "1.13.0",
+  "version": "1.15.0",
   "type": "module",
   "license": "AGPL-3.0",
   "private": true,
@@ -12,7 +12,6 @@
     "deploy:auth": "node scripts/deploy-auth.js",
     "build:mcp": "npx esbuild src/mcp/index.ts --bundle --platform=node --target=es2022 --format=esm --outfile=dist/mcp-server.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "deploy:mcp": "node scripts/deploy-mcp.js",
-    "deploy:mcp-lambda": "node scripts/deploy-mcp-lambda.js",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",

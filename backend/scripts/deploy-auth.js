@@ -12,7 +12,7 @@ const REGION = process.env.AWS_REGION || query('aws configure get region') || 'e
 
 // Custom domain override for FRONTEND_URL (set empty to use CloudFront URL)
 const CUSTOM_FRONTEND_URL = 'https://promptcv.sallai.cc';
-const CUSTOM_MCP_URL = 'https://mcp.promptcv.sallai.cc/mcp';
+const CUSTOM_MCP_URL = 'https://mcp.promptcv.sallai.cc/';
 const GOOGLE_API_KEY = 'REDACTED_GOOGLE_API_KEY';
 
 // 1. Build

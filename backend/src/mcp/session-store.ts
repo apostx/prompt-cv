@@ -11,6 +11,7 @@ export interface CvSession {
   id: string;
   userId: string;
   data: Record<string, unknown>;
+  stats?: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
 }
@@ -78,6 +79,7 @@ class SessionStore {
       id: result.Item.sessionId as string,
       userId: result.Item.userId as string,
       data: JSON.parse(result.Item.data as string),
+      stats: result.Item.stats ? JSON.parse(result.Item.stats as string) : undefined,
       createdAt: result.Item.createdAt as number,
       updatedAt: result.Item.updatedAt as number,
     };
@@ -88,17 +90,16 @@ class SessionStore {
     if (!session) throw new Error(`Session ${id} not found`);
     session.data = deepMerge(session.data, data);
     session.updatedAt = Date.now();
-    await client.send(new PutCommand({
-      TableName: TABLE_NAME,
-      Item: {
-        sessionId: session.id,
-        userId: session.userId,
-        data: JSON.stringify(session.data),
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        expiresAt: Math.floor(session.updatedAt / 1000) + TTL_SECONDS,
-      },
-    }));
+    const item: Record<string, unknown> = {
+      sessionId: session.id,
+      userId: session.userId,
+      data: JSON.stringify(session.data),
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      expiresAt: Math.floor(session.updatedAt / 1000) + TTL_SECONDS,
+    };
+    if (session.stats) item.stats = JSON.stringify(session.stats);
+    await client.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
     return session;
   }
 
@@ -109,6 +110,24 @@ class SessionStore {
       TableName: TABLE_NAME,
       Key: { sessionId: id },
     }));
+  }
+
+  async updateStats(id: string, userId: string, stats: Record<string, unknown>): Promise<CvSession> {
+    const session = await this.get(id, userId);
+    if (!session) throw new Error(`Session ${id} not found`);
+    session.stats = stats;
+    session.updatedAt = Date.now();
+    const item: Record<string, unknown> = {
+      sessionId: session.id,
+      userId: session.userId,
+      data: JSON.stringify(session.data),
+      stats: JSON.stringify(session.stats),
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      expiresAt: Math.floor(session.updatedAt / 1000) + TTL_SECONDS,
+    };
+    await client.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
+    return session;
   }
 
   async countForUser(userId: string): Promise<number> {

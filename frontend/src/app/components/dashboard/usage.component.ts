@@ -63,7 +63,7 @@ import { RouterLink } from '@angular/router';
         <h3 class="text-lg font-semibold text-gray-800 mb-3">MCP Integration</h3>
         <p class="text-sm text-gray-600 mb-3">
           Connect Prompt CV to Claude or other MCP-compatible AI assistants.
-          The MCP server provides 5 tools:
+          The MCP server provides 11 tools:
         </p>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
@@ -93,6 +93,26 @@ import { RouterLink } from '@angular/router';
               <tr>
                 <td class="py-2 pr-4 font-mono text-gray-800">optimize_cv</td>
                 <td class="py-2 text-gray-600">Adjust margins to fit within target page count</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-4 font-mono text-gray-800">reset_sessions</td>
+                <td class="py-2 text-gray-600">Delete all active CV sessions for the current user</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-4 font-mono text-gray-800">read_cv_context</td>
+                <td class="py-2 text-gray-600">Read the user's work history document</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-4 font-mono text-gray-800">update_cv_context</td>
+                <td class="py-2 text-gray-600">Update the user's work history document</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-4 font-mono text-gray-800">read_cv_instructions</td>
+                <td class="py-2 text-gray-600">Read the user's custom generation instructions</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-4 font-mono text-gray-800">update_cv_instructions</td>
+                <td class="py-2 text-gray-600">Update the user's custom generation instructions</td>
               </tr>
             </tbody>
           </table>

@@ -77,6 +77,22 @@ Resources:
         AttributeName: expiresAt
         Enabled: true
 
+  HistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: prompt-cv-history
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: documentId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: documentId
+          KeyType: RANGE
+
   # IAM role for EC2 instance
   McpEc2Role:
     Type: AWS::IAM::Role
@@ -127,6 +143,28 @@ Resources:
                 Resource:
                   - !GetAtt SessionsTable.Arn
                   - !Sub "${SessionsTable.Arn}/index/userId-index"
+        - PolicyName: DynamoDBHistoryCrud
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt HistoryTable.Arn
+        - PolicyName: DynamoDBConfigRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/prompt-cv-config"
         - PolicyName: DynamoDBReadTokens
           PolicyDocument:
             Version: "2012-10-17"
@@ -208,8 +246,10 @@ Resources:
           USERS_TABLE=${UsersTable}
           OAUTH_TOKENS_TABLE=${OAuthTokensTable}
           FRONTEND_URL=${FrontendUrl}
-          MCP_URL=https://mcp.promptcv.sallai.cc/mcp
+          MCP_URL=https://mcp.promptcv.sallai.cc/
           SESSIONS_TABLE=prompt-cv-sessions
+          HISTORY_TABLE=prompt-cv-history
+          CONFIG_TABLE=prompt-cv-config
           AWS_REGION=${AWS::Region}
           NODE_OPTIONS=--enable-source-maps
           ENVEOF

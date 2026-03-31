@@ -94,6 +94,18 @@ Resources:
         AttributeName: expiresAt
         Enabled: true
 
+  ConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: prompt-cv-config
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: key
+          KeyType: HASH
+
   # --- API Gateway ---
 
   AuthApi:
@@ -133,6 +145,7 @@ Resources:
           OAUTH_CLIENTS_TABLE: !Ref OAuthClientsTable
           OAUTH_CODES_TABLE: !Ref OAuthCodesTable
           OAUTH_TOKENS_TABLE: !Ref OAuthTokensTable
+          CONFIG_TABLE: !Ref ConfigTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
@@ -142,6 +155,8 @@ Resources:
             TableName: !Ref OAuthCodesTable
         - DynamoDBCrudPolicy:
             TableName: !Ref OAuthTokensTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConfigTable
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -271,11 +286,23 @@ Resources:
           CORS_ORIGINS: !Ref FrontendUrl
           FRONTEND_URL: !Ref FrontendUrl
           GOOGLE_API_KEY: !Ref GoogleApiKey
+          HISTORY_TABLE: prompt-cv-history
+          CONFIG_TABLE: !Ref ConfigTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
         - DynamoDBCrudPolicy:
             TableName: !Ref OAuthTokensTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConfigTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+                - dynamodb:Scan
+              Resource:
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/prompt-cv-history"
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -347,6 +374,13 @@ Resources:
       RouteKey: "GET /admin/users"
       Target: !Sub "integrations/${CvAuthIntegration}"
 
+  AdminHistoryRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /admin/history"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
   UserSettingsGetRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -401,6 +435,41 @@ Resources:
     Properties:
       ApiId: !Ref AuthApi
       RouteKey: "GET /user/setup-check"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserHistoryGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /user/history"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  UserHistoryStatusRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "PUT /user/history/{documentId}/status"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  AdminConfigGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "GET /admin/config"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  AdminConfigPutRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "PUT /admin/config/{key}"
+      Target: !Sub "integrations/${CvAuthIntegration}"
+
+  AdminConfigDeleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AuthApi
+      RouteKey: "DELETE /admin/config/{key}"
       Target: !Sub "integrations/${CvAuthIntegration}"
 
   UserSetupInitRoute:

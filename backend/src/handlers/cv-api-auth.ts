@@ -26,6 +26,8 @@ import {
   createDefaultDocSchema,
   setupInitSchema,
 } from '../shared/validation.js';
+import { historyStore } from '../mcp/history-store.js';
+import { configStore } from '../services/config-store.js';
 
 interface AuthContext {
   userId: string;
@@ -137,11 +139,49 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       return handleOptimize(event, auth);
     }
 
+    // History endpoints
+    if (path === '/user/history' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleGetHistory(auth.userId);
+    }
+
+    const historyStatusMatch = path.match(/^\/user\/history\/([^/]+)\/status$/);
+    if (historyStatusMatch && method === 'PUT') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleUpdateHistoryStatus(event, auth.userId, decodeURIComponent(historyStatusMatch[1]));
+    }
+
     // Admin endpoints
     if (path === '/admin/users' && method === 'GET') {
       const auth = await authenticate(event);
       if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
       return handleAdminUsers(auth.userId);
+    }
+
+    if (path === '/admin/history' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleAdminHistory(auth.userId);
+    }
+
+    if (path === '/admin/config' && method === 'GET') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleAdminConfigGet(auth.userId);
+    }
+
+    const configKeyMatch = path.match(/^\/admin\/config\/([^/]+)$/);
+    if (configKeyMatch && method === 'PUT') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleAdminConfigPut(event, auth.userId, decodeURIComponent(configKeyMatch[1]));
+    }
+    if (configKeyMatch && method === 'DELETE') {
+      const auth = await authenticate(event);
+      if (!auth) return jsonResponse(401, { error: 'Unauthorized' });
+      return handleAdminConfigDelete(auth.userId, decodeURIComponent(configKeyMatch[1]));
     }
 
     if (path === '/cv' && method === 'GET') {
@@ -425,7 +465,8 @@ async function handleSetupInit(event: APIGatewayProxyEventV2, auth: AuthContext)
     let instructionsDocId: string;
     if (instructions === 'default') {
       let content: string | undefined;
-      if (frontendUrl) {
+      content = await configStore.get('default-instructions');
+      if (!content && frontendUrl) {
         const res = await fetch(`${frontendUrl}/defaults/instructions.txt`);
         if (res.ok) content = await res.text();
       }
@@ -439,7 +480,8 @@ async function handleSetupInit(event: APIGatewayProxyEventV2, auth: AuthContext)
     let templateDocId: string;
     if (template === 'default') {
       let content: string | undefined;
-      if (frontendUrl) {
+      content = await configStore.get('default-template');
+      if (!content && frontendUrl) {
         const res = await fetch(`${frontendUrl}/defaults/schema.txt`);
         if (res.ok) content = await res.text();
       }
@@ -467,6 +509,43 @@ async function handleSetupInit(event: APIGatewayProxyEventV2, auth: AuthContext)
   }
 }
 
+// --- History Handlers ---
+
+async function handleGetHistory(userId: string): Promise<APIGatewayProxyResultV2> {
+  const records = await historyStore.getForUser(userId);
+  // Parse JSON strings back to objects for the frontend
+  const history = records.map(r => ({
+    ...r,
+    cvData: r.cvData ? JSON.parse(r.cvData) : undefined,
+    stats: r.stats ? JSON.parse(r.stats) : undefined,
+  }));
+  return jsonResponse(200, { history });
+}
+
+async function handleUpdateHistoryStatus(
+  event: APIGatewayProxyEventV2,
+  userId: string,
+  documentId: string,
+): Promise<APIGatewayProxyResultV2> {
+  let body: unknown;
+  try { body = parseBody(event); } catch { return jsonResponse(400, { error: 'Invalid JSON' }); }
+  if (!body || typeof body !== 'object' || !('status' in body)) {
+    return jsonResponse(400, { error: 'Request body must include status' });
+  }
+  const status = (body as { status: string }).status;
+  const validStatuses = ['created', 'applied', 'refused', 'passed'];
+  if (!validStatuses.includes(status)) {
+    return jsonResponse(400, { error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+  }
+  try {
+    await historyStore.updateStatus(userId, documentId, status);
+    return jsonResponse(200, { success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return jsonResponse(500, { error: msg });
+  }
+}
+
 // --- Admin Handlers ---
 
 async function handleAdminUsers(userId: string): Promise<APIGatewayProxyResultV2> {
@@ -474,6 +553,59 @@ async function handleAdminUsers(userId: string): Promise<APIGatewayProxyResultV2
   if (!user?.isAdmin) return jsonResponse(403, { error: 'Admin access required' });
   const users = await getAllUsersAdmin();
   return jsonResponse(200, { users });
+}
+
+async function handleAdminHistory(userId: string): Promise<APIGatewayProxyResultV2> {
+  const user = await getUser(userId);
+  if (!user?.isAdmin) return jsonResponse(403, { error: 'Admin access required' });
+  const records = await historyStore.getAll();
+  const history = records.map(r => ({
+    ...r,
+    cvData: r.cvData ? JSON.parse(r.cvData) : undefined,
+    stats: r.stats ? JSON.parse(r.stats) : undefined,
+  }));
+  return jsonResponse(200, { history });
+}
+
+const ALLOWED_CONFIG_KEYS = [
+  'default-instructions', 'default-template',
+  'login-prompt-step3', 'login-prompt-step4', 'login-prompt-step5a', 'login-prompt-step5b',
+] as const;
+
+async function handleAdminConfigGet(userId: string): Promise<APIGatewayProxyResultV2> {
+  const user = await getUser(userId);
+  if (!user?.isAdmin) return jsonResponse(403, { error: 'Admin access required' });
+  const config = await configStore.getAll();
+  return jsonResponse(200, { config });
+}
+
+async function handleAdminConfigPut(
+  event: APIGatewayProxyEventV2, userId: string, key: string,
+): Promise<APIGatewayProxyResultV2> {
+  const user = await getUser(userId);
+  if (!user?.isAdmin) return jsonResponse(403, { error: 'Admin access required' });
+  if (!ALLOWED_CONFIG_KEYS.includes(key as (typeof ALLOWED_CONFIG_KEYS)[number])) {
+    return jsonResponse(400, { error: `Invalid config key. Allowed: ${ALLOWED_CONFIG_KEYS.join(', ')}` });
+  }
+  let body: unknown;
+  try { body = parseBody(event); } catch { return jsonResponse(400, { error: 'Invalid JSON' }); }
+  if (!body || typeof body !== 'object' || !('value' in body) || typeof (body as { value: unknown }).value !== 'string') {
+    return jsonResponse(400, { error: 'Request body must include a string "value"' });
+  }
+  const value = (body as { value: string }).value;
+  if (value.length > 500_000) return jsonResponse(400, { error: 'Value too large (max 500KB)' });
+  await configStore.set(key, value, userId);
+  return jsonResponse(200, { success: true });
+}
+
+async function handleAdminConfigDelete(userId: string, key: string): Promise<APIGatewayProxyResultV2> {
+  const user = await getUser(userId);
+  if (!user?.isAdmin) return jsonResponse(403, { error: 'Admin access required' });
+  if (!ALLOWED_CONFIG_KEYS.includes(key as (typeof ALLOWED_CONFIG_KEYS)[number])) {
+    return jsonResponse(400, { error: `Invalid config key. Allowed: ${ALLOWED_CONFIG_KEYS.join(', ')}` });
+  }
+  await configStore.remove(key);
+  return jsonResponse(200, { success: true });
 }
 
 // --- CV Handlers ---

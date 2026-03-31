@@ -14,6 +14,9 @@ import { ApiComponent } from './components/dashboard/api.component';
 import { UsageComponent } from './components/dashboard/usage.component';
 import { SecurityComponent } from './components/dashboard/security.component';
 import { AdminComponent } from './components/dashboard/admin.component';
+import { HistoryComponent } from './components/dashboard/history.component';
+import { AdminHistoryComponent } from './components/dashboard/admin-history.component';
+import { AdminConfigComponent } from './components/dashboard/admin-config.component';
 import { SetupComponent } from './components/dashboard/setup.component';
 import { setupGuard } from './guards/setup.guard';
 
@@ -28,11 +31,14 @@ const routes: Routes = [
     children: [
       { path: 'settings', component: SettingsComponent },
       { path: 'files', component: FilesComponent },
+      { path: 'history', component: HistoryComponent },
       { path: 'mcp', component: McpComponent },
       { path: 'api', component: ApiComponent },
       { path: 'usage', component: UsageComponent },
       { path: 'security', component: SecurityComponent },
       { path: 'admin', component: AdminComponent },
+      { path: 'admin-history', component: AdminHistoryComponent },
+      { path: 'admin-config', component: AdminConfigComponent },
       { path: '', redirectTo: 'settings', pathMatch: 'full' },
     ],
   },

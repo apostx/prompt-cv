@@ -8,6 +8,10 @@ import { of } from 'rxjs';
 
 const mockAuthService = { login: () => console.log('login clicked') };
 const mockRoute = { snapshot: { queryParamMap: { get: () => null } } };
+const mockUserApi = {
+  getStats: () => of({ userCount: 12, totalCvsGenerated: 47 }),
+  getConfig: () => of({ mcpUrl: 'https://mcp.promptcv.sallai.cc/mcp' }),
+};
 
 const meta: Meta<LoginComponent> = {
   title: 'Pages/Login',
@@ -17,7 +21,7 @@ const meta: Meta<LoginComponent> = {
       providers: [
         { provide: AuthService, useValue: mockAuthService },
         { provide: ActivatedRoute, useValue: mockRoute },
-        { provide: UserApiService, useValue: { getStats: () => of({ userCount: 12, totalCvsGenerated: 47 }) } },
+        { provide: UserApiService, useValue: mockUserApi },
       ],
     }),
   ],
@@ -29,21 +33,27 @@ type Story = StoryObj<LoginComponent>;
 
 export const Default: Story = {};
 
-export const WithStats: Story = {
-  decorators: [
-    moduleMetadata({
-      providers: [
-        { provide: UserApiService, useValue: { getStats: () => of({ userCount: 12, totalCvsGenerated: 47 }) } },
-      ],
-    }),
-  ],
-};
-
 export const WithError: Story = {
   decorators: [
     moduleMetadata({
       providers: [
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: (key: string) => key === 'error' ? 'missing_scopes' : null } } } },
+      ],
+    }),
+  ],
+};
+
+export const WithStats: Story = {
+  decorators: [
+    moduleMetadata({
+      providers: [
+        {
+          provide: UserApiService,
+          useValue: {
+            getStats: () => of({ userCount: 238, totalCvsGenerated: 1547 }),
+            getConfig: () => of({ mcpUrl: 'https://mcp.promptcv.sallai.cc/mcp' }),
+          },
+        },
       ],
     }),
   ],

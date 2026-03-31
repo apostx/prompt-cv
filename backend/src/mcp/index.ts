@@ -76,8 +76,8 @@ app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response
   });
 });
 
-// POST /mcp — stateless: every request authenticates independently
-app.post('/mcp', async (req: Request, res: Response) => {
+// POST / — stateless: every request authenticates independently
+app.post('/', async (req: Request, res: Response) => {
   const token = extractBearerToken(req);
   if (!token) {
     res.status(401).json({

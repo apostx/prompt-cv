@@ -12,6 +12,7 @@ import {
 } from '../services/oauth-store.js';
 import { optionsResponse } from '../shared/cors.js';
 import { jsonResponse } from '../shared/response.js';
+import { configStore } from '../services/config-store.js';
 
 const API_URL = process.env.API_URL || '';
 const FRONTEND_URL = process.env.FRONTEND_URL || '';
@@ -25,7 +26,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
   try {
     // --- Public ---
-    if (path === '/config' && method === 'GET') return handleConfig(event);
+    if (path === '/config' && method === 'GET') return await handleConfig(event);
     if (path === '/stats' && method === 'GET') return handleStats(event);
 
     // --- Web Auth ---
@@ -54,9 +55,23 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
 // --- Public ---
 
-function handleConfig(event: APIGatewayProxyEventV2): APIGatewayProxyResultV2 {
+let configCache: { data: Record<string, string>; expiresAt: number } | null = null;
+
+async function handleConfig(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
   const origin = event.headers?.origin;
-  return jsonResponse(200, { mcpUrl: MCP_URL }, origin);
+  if (!configCache || Date.now() > configCache.expiresAt) {
+    const promptKeys = ['login-prompt-step3', 'login-prompt-step4', 'login-prompt-step5a', 'login-prompt-step5b'];
+    configCache = { data: await configStore.getMultiple(promptKeys), expiresAt: Date.now() + 5 * 60_000 };
+  }
+  return jsonResponse(200, {
+    mcpUrl: MCP_URL,
+    prompts: {
+      step3: configCache.data['login-prompt-step3'] || null,
+      step4: configCache.data['login-prompt-step4'] || null,
+      step5a: configCache.data['login-prompt-step5a'] || null,
+      step5b: configCache.data['login-prompt-step5b'] || null,
+    },
+  }, origin);
 }
 
 let statsCache: { data: { userCount: number; totalCvsGenerated: number }; expiresAt: number } | null = null;

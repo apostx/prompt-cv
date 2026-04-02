@@ -246,6 +246,11 @@ export function createServer(options: McpServerOptions = {}): McpServer {
         jobAnalysis: z.string().max(5000).optional(),
         matchEvaluation: z.string().max(5000).optional(),
         rating: z.number().min(0).max(10).optional(),
+        store: z.object({
+          cvData: z.boolean().optional().describe('Persist full CV data JSON (default: false)'),
+          sourceDocs: z.boolean().optional().describe('Persist template, context, and instructions content (default: false)'),
+          jobDescription: z.boolean().optional().describe('Persist job description text (default: false)'),
+        }).optional().describe('Flags to persist heavy data — all disabled by default'),
       }).optional().describe('Job analysis stats — if provided, CV history will be stored on finalization'),
     },
     { readOnlyHint: false, destructiveHint: false },
@@ -437,23 +442,12 @@ export function createServer(options: McpServerOptions = {}): McpServer {
     googleClients?: GoogleClients,
     settings?: UserSettings,
   ): Promise<void> {
-    if (!session.stats || !userId) return;
+    if (!userId) return;
     try {
       const user = await getUser(userId);
       const email = user?.email || '';
 
-      // Fetch source docs for full process reconstruction (each independently)
-      let templateContent: string | undefined;
-      let contextContent: string | undefined;
-      let instructionsContent: string | undefined;
-
-      try { templateContent = (await getDocument(templateDocId, googleClients)).content; } catch { /* skip */ }
-      if (settings?.contextDocId) {
-        try { contextContent = (await getDocument(settings.contextDocId, googleClients)).content; } catch { /* skip */ }
-      }
-      if (settings?.instructionsDocId) {
-        try { instructionsContent = (await getDocument(settings.instructionsDocId, googleClients)).content; } catch { /* skip */ }
-      }
+      const store = session.stats?.store as { cvData?: boolean; sourceDocs?: boolean; jobDescription?: boolean } | undefined;
 
       const record: HistoryRecord = {
         userId,
@@ -462,13 +456,32 @@ export function createServer(options: McpServerOptions = {}): McpServer {
         documentId,
         documentUrl,
         status: 'created',
-        cvData: JSON.stringify(session.data),
-        stats: JSON.stringify(session.stats),
         templateDocId,
-        templateContent,
-        contextContent,
-        instructionsContent,
       };
+
+      // Persist cvData only when explicitly opted in
+      if (store?.cvData) {
+        record.cvData = JSON.stringify(session.data);
+      }
+
+      // When stats are provided, save lightweight fields (strip store + conditionally strip jobDescription)
+      if (session.stats) {
+        const { store: _store, jobDescription, ...lightStats } = session.stats as Record<string, unknown>;
+        const statsToSave = store?.jobDescription ? { ...lightStats, jobDescription } : lightStats;
+        record.stats = JSON.stringify(statsToSave);
+
+        // Fetch source docs only when explicitly opted in
+        if (store?.sourceDocs) {
+          try { record.templateContent = (await getDocument(templateDocId, googleClients)).content; } catch { /* skip */ }
+          if (settings?.contextDocId) {
+            try { record.contextContent = (await getDocument(settings.contextDocId, googleClients)).content; } catch { /* skip */ }
+          }
+          if (settings?.instructionsDocId) {
+            try { record.instructionsContent = (await getDocument(settings.instructionsDocId, googleClients)).content; } catch { /* skip */ }
+          }
+        }
+      }
+
       await historyStore.save(record);
     } catch (err) {
       console.error('[maybeSaveHistory] Failed to save history (non-fatal):', err);

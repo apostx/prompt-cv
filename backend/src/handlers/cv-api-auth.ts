@@ -4,6 +4,7 @@ import {
   updateDocumentFromHtml,
   getDocumentTitle,
   createDocument,
+  createDocumentFromHtml,
   moveFileToFolder,
   findFolder,
   findFileByName,
@@ -373,20 +374,24 @@ async function handleCreateDefaultDoc(event: APIGatewayProxyEventV2, auth: AuthC
     defaultTitle = 'My CV Context';
   } else {
     const frontendUrl = process.env.FRONTEND_URL || '';
-    const filename = type === 'instructions' ? 'instructions.txt' : 'schema.txt';
+    const filename = type === 'instructions' ? 'instructions.txt' : 'schema.html';
     defaultTitle = type === 'instructions' ? 'My CV Instructions' : 'My CV Template';
 
-    const res = await fetch(`${frontendUrl}/defaults/${filename}`);
-    if (!res.ok) return jsonResponse(500, { error: `Failed to fetch default ${type}` });
-    content = await res.text();
+    content = await configStore.get(type === 'instructions' ? 'default-instructions' : 'default-template');
+    if (!content && frontendUrl) {
+      const res = await fetch(`${frontendUrl}/defaults/${filename}`);
+      if (res.ok) content = await res.text();
+    }
   }
 
   const title = customTitle || defaultTitle;
 
-  const doc = await createDocument(title, content, auth.clients);
+  const doc = type === 'template' && content
+    ? await createDocumentFromHtml(title, content, folderId || undefined, auth.clients)
+    : await createDocument(title, content, auth.clients);
 
-  // Move to chosen folder if specified
-  if (folderId) {
+  // Move to chosen folder if specified (skip for template — already created in folder via createDocumentFromHtml)
+  if (folderId && !(type === 'template' && content)) {
     await moveFileToFolder(doc.documentId, folderId, auth.clients);
   }
 
@@ -482,11 +487,13 @@ async function handleSetupInit(event: APIGatewayProxyEventV2, auth: AuthContext)
       let content: string | undefined;
       content = await configStore.get('default-template');
       if (!content && frontendUrl) {
-        const res = await fetch(`${frontendUrl}/defaults/schema.txt`);
+        const res = await fetch(`${frontendUrl}/defaults/schema.html`);
         if (res.ok) content = await res.text();
       }
-      const doc = await createDocument('cv-template', content, auth.clients);
-      if (promptCvFolderId) await moveFileToFolder(doc.documentId, promptCvFolderId, auth.clients);
+      const doc = content
+        ? await createDocumentFromHtml('cv-template', content, promptCvFolderId || undefined, auth.clients)
+        : await createDocument('cv-template', content, auth.clients);
+      if (!content && promptCvFolderId) await moveFileToFolder(doc.documentId, promptCvFolderId, auth.clients);
       templateDocId = doc.documentId;
     } else {
       templateDocId = template.id;

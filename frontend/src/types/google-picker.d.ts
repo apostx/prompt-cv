@@ -13,6 +13,8 @@ declare namespace google.picker {
     setMimeTypes(mimeTypes: string): DocsView;
     setIncludeFolders(include: boolean): DocsView;
     setSelectFolderEnabled(enabled: boolean): DocsView;
+    setOwnedByMe(owned: boolean): DocsView;
+    setParent(parentId: string): DocsView;
   }
 
   interface Picker {

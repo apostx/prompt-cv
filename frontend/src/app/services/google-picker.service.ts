@@ -67,7 +67,6 @@ export class GooglePickerService {
       let view: google.picker.DocsView;
       if (mode === 'folder') {
         view = new google.picker.DocsView(google.picker.ViewId.FOLDERS);
-        view.setMimeTypes('application/vnd.google-apps.folder');
         view.setSelectFolderEnabled(true);
       } else {
         view = new google.picker.DocsView(google.picker.ViewId.DOCUMENTS);

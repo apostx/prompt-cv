@@ -42,11 +42,17 @@ const STATUS_CONFIG: Record<ApplicationStatus, { label: string; color: string; b
                       [href]="record.documentUrl"
                       target="_blank"
                       class="text-sm font-medium text-blue-600 hover:text-blue-700 truncate"
-                    >{{ record.stats?.jobTitle || 'Untitled position' }}</a>
-                    @if (record.stats?.rating != null) {
-                      <span class="text-xs font-medium px-1.5 py-0.5 rounded"
-                        [class]="getRatingClass(record.stats!.rating!)"
-                      >{{ record.stats!.rating }}/10</span>
+                    >{{ record.stats?.jobTitle || getPositionLabel(record) }}</a>
+                    @if (record.stats) {
+                      @if (record.stats.rating != null) {
+                        <span class="text-xs font-medium px-1.5 py-0.5 rounded"
+                          [class]="getRatingClass(record.stats!.rating!)"
+                        >{{ record.stats!.rating }}/10</span>
+                      }
+                    } @else {
+                      <span class="text-xs text-gray-400 px-1.5 py-0.5 rounded bg-gray-50"
+                        title="Rating not available — analytics were not provided during generation"
+                      >—/10</span>
                     }
                     <span class="text-xs font-medium px-2 py-0.5 rounded-full"
                       [class]="getStatusClasses(record.status)"
@@ -61,31 +67,68 @@ const STATUS_CONFIG: Record<ApplicationStatus, { label: string; color: string; b
                 </div>
               </div>
 
-              @if (record.stats?.matchEvaluation) {
-                <div class="mt-2">
-                  <button
-                    (click)="toggleExpanded(record.userId + record.createdAt)"
-                    class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer flex items-center gap-1"
-                  >
-                    <span class="transition-transform" [class.rotate-90]="isExpanded(record.userId + record.createdAt)">&#9654;</span>
-                    Match evaluation
-                  </button>
-                  @if (isExpanded(record.userId + record.createdAt)) {
-                    <p class="text-xs text-gray-600 mt-1 pl-3 border-l-2 border-gray-200 whitespace-pre-wrap">
-                      {{ record.stats!.matchEvaluation }}
-                    </p>
+              @if (record.stats) {
+                <div class="mt-2 space-y-1">
+                  @if (record.stats.matchEvaluation) {
+                    <div>
+                      <button
+                        (click)="toggleExpanded(record.userId + record.createdAt + '-eval')"
+                        class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer flex items-center gap-1"
+                      >
+                        <span class="transition-transform" [class.rotate-90]="isExpanded(record.userId + record.createdAt + '-eval')">&#9654;</span>
+                        Match evaluation
+                      </button>
+                      @if (isExpanded(record.userId + record.createdAt + '-eval')) {
+                        <p class="text-xs text-gray-600 mt-1 pl-3 border-l-2 border-gray-200 whitespace-pre-wrap">
+                          {{ record.stats!.matchEvaluation }}
+                        </p>
+                      }
+                    </div>
+                  }
+                  @if (record.stats.jobAnalysis) {
+                    <div>
+                      <button
+                        (click)="toggleExpanded(record.userId + record.createdAt + '-analysis')"
+                        class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer flex items-center gap-1"
+                      >
+                        <span class="transition-transform" [class.rotate-90]="isExpanded(record.userId + record.createdAt + '-analysis')">&#9654;</span>
+                        Job analysis
+                      </button>
+                      @if (isExpanded(record.userId + record.createdAt + '-analysis')) {
+                        <p class="text-xs text-gray-600 mt-1 pl-3 border-l-2 border-gray-200 whitespace-pre-wrap">
+                          {{ record.stats!.jobAnalysis }}
+                        </p>
+                      }
+                    </div>
+                  }
+                  @if (record.stats.jobDescription) {
+                    <div>
+                      <button
+                        (click)="toggleExpanded(record.userId + record.createdAt + '-desc')"
+                        class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer flex items-center gap-1"
+                      >
+                        <span class="transition-transform" [class.rotate-90]="isExpanded(record.userId + record.createdAt + '-desc')">&#9654;</span>
+                        Job description
+                      </button>
+                      @if (isExpanded(record.userId + record.createdAt + '-desc')) {
+                        <p class="text-xs text-gray-600 mt-1 pl-3 border-l-2 border-gray-200 whitespace-pre-wrap">
+                          {{ record.stats!.jobDescription }}
+                        </p>
+                      }
+                    </div>
+                  }
+                  @if (record.stats.jobLink) {
+                    <a
+                      [href]="record.stats!.jobLink"
+                      target="_blank"
+                      class="text-xs text-blue-500 hover:text-blue-600 hover:underline inline-block"
+                    >View job posting</a>
                   }
                 </div>
-              }
-
-              @if (record.stats?.jobLink) {
-                <div class="mt-2">
-                  <a
-                    [href]="record.stats!.jobLink"
-                    target="_blank"
-                    class="text-xs text-blue-500 hover:text-blue-600 hover:underline"
-                  >View job posting</a>
-                </div>
+              } @else {
+                <p class="mt-2 text-xs text-gray-400 italic"
+                  title="Analytics were not provided during generation — only the generated document link is tracked"
+                >No analytics data</p>
               }
             </div>
           }
@@ -142,6 +185,17 @@ export class AdminHistoryComponent implements OnInit {
   getCardBorder(status: string): string {
     const config = STATUS_CONFIG[status as ApplicationStatus];
     return config ? config.border : 'border-gray-200';
+  }
+
+  getPositionLabel(record: CvHistoryRecord): string {
+    const data = record.cvData as Record<string, unknown> | undefined;
+    const app = data?.['application'] as Record<string, unknown> | undefined;
+    const position = app?.['position'] as string | undefined;
+    const company = app?.['company'] as string | undefined;
+    if (position && company) return `${position} @ ${company}`;
+    if (position) return position;
+    if (company) return company;
+    return 'Untitled position';
   }
 
   getRatingClass(rating: number): string {
